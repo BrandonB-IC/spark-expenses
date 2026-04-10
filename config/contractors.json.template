@@ -1,0 +1,23 @@
+{
+  "_comment": "Contractor list for Spark Expense Engine. Copy this file to contractors.json and fill in real values. The real file is gitignored.",
+  "_last_updated": "2026-04-10",
+  "contractors": [
+    {
+      "id": "brandon",
+      "display_name": "Brandon",
+      "full_name": "Brandon Bennett",
+      "email": "brandon@improvement-science.com",
+      "home_airport": {
+        "_note": "Fill in Brandon's actual home airport. Example below is a placeholder.",
+        "code": "XXX",
+        "city": "City, ST",
+        "lat": 0.0,
+        "lon": 0.0
+      },
+      "drive_folder_id": "PASTE_BRANDONS_DRIVE_FOLDER_ID_HERE",
+      "active": true,
+      "added": "2026-04-10",
+      "notes": "v1 test contractor - Brandon validates the system on his own receipts before adding others"
+    }
+  ]
+}

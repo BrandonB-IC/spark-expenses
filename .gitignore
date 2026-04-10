@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# Secrets — NEVER commit
+.env
+credentials.json
+token.json
+token.backup-*
+*.token
+
+# Financial / contractor data
+config/contractors.json
+config/financial.json
+ledger.json
+
+# Generated outputs
+reports/
+scheduler/logs/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# Test fixtures (don't commit real receipts)
+tests/fixtures/sample_receipts/*.jpg
+tests/fixtures/sample_receipts/*.jpeg
+tests/fixtures/sample_receipts/*.png
+tests/fixtures/sample_receipts/*.pdf
+!tests/fixtures/sample_receipts/.gitkeep
+
+# Test outputs — contain real receipt data (addresses, driver names, merchant locations)
+tests/phase*_results.json
+tests/phase*_summary.md
+tests/phase*_ledger.csv
+
+# Dashboard sessions
+dashboard/sessions/

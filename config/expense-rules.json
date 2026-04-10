@@ -1,0 +1,57 @@
+{
+  "version": "0.1.0-draft",
+  "last_updated": "2026-04-10",
+  "status": "draft - pending Spark partner review",
+  "review_required_before": "any real reimbursements",
+  "per_diem": {
+    "rate_usd": 100,
+    "applies_when": "travel_detected",
+    "replaces": ["meals", "incidentals"],
+    "incidentals_includes": ["in_flight_wifi"],
+    "incidentals_includes_pending_partner_review": true,
+    "note": "Meal/incidental receipts are NOT reimbursed; flat per-diem applied per travel day. In-flight wifi rolled into incidentals for v1 (Brandon, 2026-04-10) — pending Spark partner confirmation."
+  },
+  "hotel": {
+    "cap_per_night_usd": 300,
+    "action_over_cap": "flag_for_review",
+    "note": "May need to increase - flagged for partner review"
+  },
+  "airfare": {
+    "tier_short_haul": {
+      "max_distance_mi": 750,
+      "cap_usd": 400
+    },
+    "tier_medium_haul": {
+      "max_distance_mi": 2000,
+      "cap_usd": 600
+    },
+    "tier_long_haul": {
+      "max_distance_mi": null,
+      "cap_usd": 900,
+      "note": "anything over 2000mi or international"
+    },
+    "advance_booking_rule": {
+      "min_days_advance": 14,
+      "cap_if_under_min_usd": 600,
+      "rationale": "Rewards advance planning; discourages last-minute panic bookings"
+    },
+    "action_over_cap": "flag_for_review",
+    "distance_source": "contractor home_airport in contractors.json -> great-circle distance to event city"
+  },
+  "large_expense": {
+    "threshold_usd": 500,
+    "action": "flag_for_manual_review",
+    "applies_to": "any single line item"
+  },
+  "credit_card_slips": {
+    "action": "flag_for_review",
+    "reason": "missing_itemization",
+    "note": "Credit card slips without merchant line items cannot be audited"
+  },
+  "currency": {
+    "default": "USD",
+    "fx_source": "exchangerate.host",
+    "fx_basis": "transaction_date",
+    "fallback": "month_start_rate"
+  }
+}

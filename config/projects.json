@@ -1,0 +1,30 @@
+{
+  "_comment": "Spark project IDs that map to Drive subfolder names. Folder names in Drive must match an id below or the receipt is flagged for manual review.",
+  "_last_updated": "2026-04-10",
+  "projects": [
+    {
+      "id": "NDL - 2026",
+      "display_name": "Network Design Lab 2026-2027",
+      "description": "Spark NDL launch year",
+      "active": true
+    },
+    {
+      "id": "WHI",
+      "display_name": "West Health Institute",
+      "description": "WHI engagement work",
+      "active": true
+    },
+    {
+      "id": "Healthcare-AF",
+      "display_name": "Healthcare Action Forum",
+      "description": "Spark Healthcare AF cohort",
+      "active": true
+    },
+    {
+      "id": "General",
+      "display_name": "General / Non-project",
+      "description": "Spark business expenses not tied to a specific client engagement",
+      "active": true
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+# Anthropic SDK — Claude vision OCR for receipts
+anthropic>=0.40.0
+
+# Google Drive API
+google-api-python-client>=2.100.0
+google-auth>=2.20.0
+google-auth-oauthlib>=1.0.0
+google-auth-httplib2>=0.1.1
+
+# PDF & image handling
+pdfplumber>=0.10.0
+Pillow>=10.0.0
+
+# Reports / accounting
+openpyxl>=3.1.0
+reportlab>=4.0.0
+
+# Web dashboard
+flask>=3.0.0
+
+# Config / env
+python-dotenv>=1.0.0
+
+# HTTP for currency API
+requests>=2.31.0
