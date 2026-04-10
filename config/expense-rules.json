@@ -9,7 +9,8 @@
     "replaces": ["meals", "incidentals"],
     "incidentals_includes": ["in_flight_wifi"],
     "incidentals_includes_pending_partner_review": true,
-    "note": "Meal/incidental receipts are NOT reimbursed; flat per-diem applied per travel day. In-flight wifi rolled into incidentals for v1 (Brandon, 2026-04-10) — pending Spark partner confirmation."
+    "company_card_meals_open_question": "UNRESOLVED 2026-04-10: if a contractor charges meals to a company debit card on a trip, the current logic would still credit per-diem on those days, double-paying. Pending Spark leadership decision (Peter/Dan/David). See expense-rules-changelog.md for the four candidate approaches.",
+    "note": "Meal/incidental receipts are NOT reimbursed; flat per-diem applied per travel day. In-flight wifi rolled into incidentals for v1 (Brandon, 2026-04-10) — pending Spark partner confirmation. ALSO PENDING: company-card meal handling — see company_card_meals_open_question."
   },
   "hotel": {
     "cap_per_night_usd": 300,

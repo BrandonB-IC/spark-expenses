@@ -36,6 +36,14 @@ A flat airfare cap unfairly burdens west-coast contractors traveling east while 
 **Open questions surfaced from Phase 2 smoke test (2026-04-10):**
 - **Privacy in audit notes:** vision model captures pickup/dropoff addresses, driver names, ratings. v1 keeps everything (Brandon's call). May need to revisit if reports get shared beyond Brandon + partners.
 
+**Open questions surfaced from Phase 4 build (2026-04-10):**
+- **Per-diem vs company debit card meals:** if a contractor is on a trip where any meals are charged directly to the company debit card, the current per-diem logic would still credit the contractor $100/day on those days, effectively double-paying. Brandon flagged this 2026-04-10 as needing leadership input. Possible approaches:
+  1. **All-or-nothing:** if any meal on the trip is on company card, no per-diem at all that trip
+  2. **Per-meal reduction:** subtract a flat amount per company-card meal from the per-diem total
+  3. **Opt-in/out per trip:** contractor declares per-diem vs actuals at submission time
+  4. **Status quo + double-pay tolerated:** accept the overlap as small enough not to matter
+  Each approach has implications for how the engine detects company-card payments. v1 has NO logic for this — meals are uniformly replaced by per-diem on travel days regardless of payment source. **Must be resolved with Spark partners (Peter/Dan/David) before processing real reimbursements for any trip where company-card meals are possible.**
+
 ---
 
 <!-- Template for future entries:

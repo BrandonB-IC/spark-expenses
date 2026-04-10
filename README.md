@@ -27,14 +27,16 @@ Autonomous expense processing pipeline for Spark contractors. Receipts go in a G
 - [x] `google_auth.py` + `auth_unified.py` (drive.readonly scope)
 - [x] `EXPENSE_PRD.md` (PRD reference)
 - [x] `CLAUDE.md` (project conventions)
-- [ ] **Brandon:** Create Google Drive folder structure (see Manual Setup #1)
-- [ ] **Brandon:** Create Google Cloud OAuth client + download `credentials.json` (see Manual Setup #2)
-- [ ] **Brandon:** Run `python auth_unified.py` to mint `token.json` (see Manual Setup #3)
-- [ ] `pipeline/` modules (drive_reader, hasher, vision_extractor, rules_engine, report_builder)
-- [ ] `scheduler/expense_processor.py` + `.bat` wrapper
-- [ ] `dashboard/app.py` Flask UI
-- [ ] `.claude/skills/process-expenses/` skill
-- [ ] Real-world test with sample receipts
+- [x] **Brandon:** Create Google Drive folder structure ✅
+- [x] **Brandon:** Create Google Cloud OAuth client + download `credentials.json` ✅
+- [x] **Brandon:** Run `python auth_unified.py` to mint `token.json` ✅
+- [x] `pipeline/` modules (drive_reader, hasher, vision_extractor, rules_engine, currency, report_builder) ✅
+- [x] `scheduler/expense_processor.py` + `.bat` wrapper ✅
+- [x] `dashboard/app.py` Flask UI ✅
+- [x] `.claude/skills/process-expenses/` skill ✅
+- [x] Real-world test with 6 actual receipts (San Diego trip) — $908.60 reimbursable, 7 receipts extracted, 2 flagged ✅
+- [ ] **Brandon:** Set home airport in `config/contractors.json` (currently `XXX` placeholder — needed before processing real airfare receipts)
+- [ ] **Brandon:** Add Windows Task Scheduler entry (see Manual Setup #5 below)
 - [ ] **Brandon:** Review rules with Spark partners (Peter/Dan/David); update changelog
 
 ---
@@ -103,7 +105,31 @@ For first-run testing, drop 2–3 receipts into one of your project folders (e.g
 
 ### 5. Add Windows Task Scheduler entry
 
-Claude will give you a one-line PowerShell command that creates the "Spark Expense Processor" task to run every Friday at 4:00 PM.
+Open PowerShell **as Administrator** and paste this single command. It creates a task named "Spark Expense Processor" that runs every Friday at 4:00 PM, retries if your laptop is asleep, and logs to `scheduler/logs/expense_processor.log`:
+
+```powershell
+$action = New-ScheduledTaskAction -Execute "c:\Users\impro\Brandon_Claude playground\3.0 spark-expenses\scheduler\run_expense_processor.bat"
+$trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Friday -At 4:00pm
+$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+Register-ScheduledTask -TaskName "Spark Expense Processor" -Action $action -Trigger $trigger -Settings $settings -Description "Spark Expense Engine weekly run"
+```
+
+**To verify it was created:**
+```powershell
+Get-ScheduledTask -TaskName "Spark Expense Processor"
+```
+
+**To trigger it manually for testing:**
+```powershell
+Start-ScheduledTask -TaskName "Spark Expense Processor"
+```
+
+**To delete it later (if you ever want to):**
+```powershell
+Unregister-ScheduledTask -TaskName "Spark Expense Processor" -Confirm:$false
+```
+
+**Why `StartWhenAvailable`:** if your laptop is asleep at exactly 4pm Friday, the task runs the next time the laptop wakes up (instead of just being skipped).
 
 ### 6. Review rules with Spark partners
 

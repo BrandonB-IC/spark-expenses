@@ -46,5 +46,10 @@ tests/phase*_results.json
 tests/phase*_summary.md
 tests/phase*_ledger.csv
 
+# Email drafts and other working documents (may contain partner names + working notes)
+partner_review_email_draft.md
+*_email_draft.md
+drafts/
+
 # Dashboard sessions
 dashboard/sessions/
