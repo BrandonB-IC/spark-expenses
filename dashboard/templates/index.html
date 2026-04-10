@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}Reports — Spark Expense Engine{% endblock %}
+{% block nav_index %}active{% endblock %}
+
+{% block content %}
+
+<section class="hero">
+  <div class="hero-left">
+    <h1>Expense Reports</h1>
+    <p class="muted">
+      {% if ledger.entries %}
+        Ledger holds {{ ledger.entries }} processed receipts · ${{ '%.2f'|format(ledger.total_extracted_usd) }} extracted to date
+      {% else %}
+        Ledger is empty. No receipts processed yet.
+      {% endif %}
+    </p>
+  </div>
+  <div class="hero-right">
+    <button id="run-now-btn" class="primary">▶ Run Now</button>
+    <div id="run-status" class="run-status">
+      {% if run_state.running %}
+        <span class="dot dot-active"></span> Run in progress (started {{ run_state.started }})
+      {% elif run_state.finished %}
+        <span class="dot {% if run_state.exit_code == 0 %}dot-ok{% else %}dot-err{% endif %}"></span>
+        Last run finished {{ run_state.finished }} (exit {{ run_state.exit_code }})
+      {% else %}
+        <span class="dot dot-idle"></span> Idle
+      {% endif %}
+    </div>
+  </div>
+</section>
+
+{% if latest_week %}
+<section class="card">
+  <h2>Latest report — {{ latest_week.week_label }}</h2>
+  <p class="muted">Generated {{ latest_week.modified }}</p>
+  <div class="actions">
+    {% for c in latest_week.contractors %}
+      <a href="/report/{{ latest_week.week_label }}?contractor={{ c }}" class="btn">View {{ c }}'s report</a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<section>
+  <h2>All reports</h2>
+  {% if weeks %}
+  <table class="data">
+    <thead><tr><th>Week</th><th>Contractors</th><th>Generated</th><th></th></tr></thead>
+    <tbody>
+      {% for w in weeks %}
+      <tr>
+        <td><strong>{{ w.week_label }}</strong></td>
+        <td>{{ w.contractors | join(', ') }}</td>
+        <td>{{ w.modified }}</td>
+        <td>
+          {% for c in w.contractors %}
+            <a href="/report/{{ w.week_label }}?contractor={{ c }}" class="btn-sm">{{ c }}</a>
+          {% endfor %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <p class="muted">No reports yet. Click "Run Now" to process current receipts.</p>
+  {% endif %}
+</section>
+
+<script>
+const runBtn = document.getElementById("run-now-btn");
+const runStatus = document.getElementById("run-status");
+let pollTimer = null;
+
+async function poll() {
+  const res = await fetch("/status");
+  const s = await res.json();
+  if (s.running) {
+    runStatus.innerHTML = '<span class="dot dot-active"></span> Run in progress (started ' + s.started + ')';
+    runBtn.disabled = true;
+  } else if (s.finished) {
+    const dotClass = s.exit_code === 0 ? "dot-ok" : "dot-err";
+    runStatus.innerHTML = '<span class="dot ' + dotClass + '"></span> Last run finished ' + s.finished + ' (exit ' + s.exit_code + ')';
+    runBtn.disabled = false;
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+      // Reload to pick up new reports
+      setTimeout(() => window.location.reload(), 800);
+    }
+  }
+}
+
+runBtn.addEventListener("click", async () => {
+  runBtn.disabled = true;
+  runStatus.innerHTML = '<span class="dot dot-active"></span> Starting...';
+  const res = await fetch("/run", { method: "POST" });
+  if (!res.ok) {
+    runStatus.innerHTML = '<span class="dot dot-err"></span> Failed to start';
+    runBtn.disabled = false;
+    return;
+  }
+  pollTimer = setInterval(poll, 1500);
+  poll();
+});
+
+// If a run is already in progress on page load, start polling
+{% if run_state.running %}
+pollTimer = setInterval(poll, 1500);
+{% endif %}
+</script>
+
+{% endblock %}

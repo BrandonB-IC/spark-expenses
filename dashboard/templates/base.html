@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{% block title %}Spark Expense Engine{% endblock %}</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <a href="/"><span class="brand-mark">⚡</span> Spark Expense Engine</a>
+  </div>
+  <nav class="nav">
+    <a href="/" class="{% block nav_index %}{% endblock %}">Reports</a>
+    <a href="/rules" class="{% block nav_rules %}{% endblock %}">Rules</a>
+    <a href="/contractors" class="{% block nav_contractors %}{% endblock %}">Contractors</a>
+  </nav>
+</header>
+
+<main class="container">
+{% block content %}{% endblock %}
+</main>
+
+<footer class="footer">
+  <span>v0.1 · local · port {{ request.host.split(':')[1] if ':' in request.host else '8770' }}</span>
+</footer>
+
+</body>
+</html>

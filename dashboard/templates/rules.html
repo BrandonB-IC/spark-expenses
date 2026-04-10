@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Rules — Spark Expense Engine{% endblock %}
+{% block nav_rules %}active{% endblock %}
+
+{% block content %}
+
+<h1>Compliance Rules</h1>
+<p class="muted">
+  Read-only view. Edit <code>config/expense-rules.json</code> directly to change values.
+  Always log changes in <code>config/expense-rules-changelog.md</code>.
+</p>
+
+{% if rules.status and 'draft' in rules.status %}
+<div class="warning-banner">
+  <strong>DRAFT — Not for real reimbursements.</strong> Rules version <code>{{ rules.version }}</code> is marked
+  <em>"{{ rules.status }}"</em>. Walk Spark business partners (Peter, Dan, David) through these numbers and
+  flip the status to <code>approved</code> before processing real receipts.
+</div>
+{% endif %}
+
+<section class="card">
+  <h2>Quick reference</h2>
+  <table class="data">
+    <tr><th>Per-diem</th><td>${{ rules.per_diem.rate_usd }} / travel day</td></tr>
+    <tr><th>Per-diem replaces</th><td>{{ rules.per_diem.replaces | join(', ') }}{% if rules.per_diem.incidentals_includes %} (incidentals: {{ rules.per_diem.incidentals_includes | join(', ') }}){% endif %}</td></tr>
+    <tr><th>Hotel cap</th><td>${{ rules.hotel.cap_per_night_usd }} / night</td></tr>
+    <tr><th>Airfare short-haul</th><td>up to {{ rules.airfare.tier_short_haul.max_distance_mi }} mi → ${{ rules.airfare.tier_short_haul.cap_usd }}</td></tr>
+    <tr><th>Airfare medium-haul</th><td>up to {{ rules.airfare.tier_medium_haul.max_distance_mi }} mi → ${{ rules.airfare.tier_medium_haul.cap_usd }}</td></tr>
+    <tr><th>Airfare long-haul</th><td>over 2,000 mi or international → ${{ rules.airfare.tier_long_haul.cap_usd }}</td></tr>
+    <tr><th>14-day advance booking rule</th><td>caps at ${{ rules.airfare.advance_booking_rule.cap_if_under_min_usd }} if booked &lt; {{ rules.airfare.advance_booking_rule.min_days_advance }} days out</td></tr>
+    <tr><th>Large item flag</th><td>${{ rules.large_expense.threshold_usd }} (any single line item)</td></tr>
+    <tr><th>Currency</th><td>{{ rules.currency.default }} default, {{ rules.currency.fx_source }} for non-USD</td></tr>
+  </table>
+</section>
+
+<section class="card">
+  <h2>Raw JSON</h2>
+  <pre class="json-pre">{{ rules_pretty }}</pre>
+</section>
+
+<section class="card">
+  <h2>Changelog</h2>
+  <div class="markdown-body">
+    {{ changelog_html | safe }}
+  </div>
+</section>
+
+{% endblock %}

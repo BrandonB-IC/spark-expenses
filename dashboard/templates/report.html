@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}{{ week_label }} — {{ contractor }}{% endblock %}
+{% block nav_index %}active{% endblock %}
+
+{% block content %}
+
+<div class="breadcrumb">
+  <a href="/">← All reports</a>
+  <span class="sep">/</span>
+  <strong>{{ week_label }}</strong>
+</div>
+
+{% if contractors_avail | length > 1 %}
+<nav class="contractor-tabs">
+  {% for c in contractors_avail %}
+    <a href="/report/{{ week_label }}?contractor={{ c }}" class="{% if c == contractor %}active{% endif %}">{{ c }}</a>
+  {% endfor %}
+</nav>
+{% endif %}
+
+<div class="report-meta">
+  <span class="badge">Week {{ week_label }}</span>
+  <span class="badge">{{ contractor }}</span>
+  <span class="badge badge-soft">{{ receipt_count }} receipt{{ '' if receipt_count == 1 else 's' }} in audit packet</span>
+</div>
+
+<article class="report-body">
+{{ body_html | safe }}
+</article>
+
+<aside class="card">
+  <h3>Audit packet</h3>
+  <p class="muted">Original PDFs preserved at <code>{{ csv_path.parent }}\receipts\{{ contractor }}\</code></p>
+  {% if receipt_files %}
+  <ul class="file-list">
+    {% for f in receipt_files %}
+      <li><code>{{ f }}</code></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  <p class="muted">CSV ledger: <code>{{ csv_path.name }}</code></p>
+</aside>
+
+{% endblock %}

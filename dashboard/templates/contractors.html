@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Contractors — Spark Expense Engine{% endblock %}
+{% block nav_contractors %}active{% endblock %}
+
+{% block content %}
+
+<h1>Contractors</h1>
+<p class="muted">
+  Read-only view. Edit <code>config/contractors.json</code> directly to add or update contractors.
+</p>
+
+{% if error %}
+  <div class="warning-banner">{{ error }}</div>
+{% endif %}
+
+{% if contractors %}
+<table class="data">
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Email</th>
+      <th>Home airport</th>
+      <th>Drive folder</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for c in contractors %}
+    <tr>
+      <td><strong>{{ c.display_name or c.id }}</strong>{% if c.full_name and c.full_name != c.display_name %}<br><span class="muted">{{ c.full_name }}</span>{% endif %}</td>
+      <td><code>{{ c.email or '—' }}</code></td>
+      <td>
+        {% if c.home_airport and c.home_airport.code and c.home_airport.code != 'XXX' %}
+          {{ c.home_airport.code }} ({{ c.home_airport.city }})
+        {% else %}
+          <span class="warn">Not configured</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if c.drive_folder_id %}
+          <code>{{ c.drive_folder_id[:12] }}...</code>
+        {% else %}
+          <span class="warn">Not set</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if c.active %}
+          <span class="badge badge-ok">active</span>
+        {% else %}
+          <span class="badge badge-soft">inactive</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+  <p class="muted">No contractors configured.</p>
+{% endif %}
+
+{% endblock %}
