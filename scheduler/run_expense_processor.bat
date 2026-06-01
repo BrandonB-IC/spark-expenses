@@ -8,7 +8,10 @@ REM ======================================================================
 set PROJECT_DIR=c:\Users\impro\Brandon_Claude playground\3.0 spark-expenses
 set PYTHON=C:\Users\impro\AppData\Local\Programs\Python\Python312-arm64\python.exe
 set LOGDIR=%PROJECT_DIR%\scheduler\logs
-set LOGFILE=%LOGDIR%\expense_processor.log
+REM wrapper.log is kept distinct from Python's expense_processor.log so the
+REM FileHandler in setup_logging() can hold its own write lock without
+REM Windows denying the second open. Crashed every Friday W18-W20 until split.
+set LOGFILE=%LOGDIR%\wrapper.log
 
 if not exist "%LOGDIR%" mkdir "%LOGDIR%"
 

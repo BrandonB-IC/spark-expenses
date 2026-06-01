@@ -63,7 +63,9 @@ def main():
         return
 
     flow = InstalledAppFlow.from_client_secrets_file(str(CREDENTIALS), ALL_SCOPES)
-    creds = flow.run_local_server(port=0)
+    # open_browser=False: Brandon uses multiple Chrome profiles and needs to
+    # pick the right one manually. Print the URL; do not auto-launch.
+    creds = flow.run_local_server(port=0, open_browser=False)
     TOKEN.write_text(creds.to_json())
     print(f"\nAuthorization complete. Token saved to {TOKEN}")
     print(f"Scopes: {ALL_SCOPES}")

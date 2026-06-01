@@ -1,11 +1,17 @@
 {
   "_comment": "Spark project IDs that map to Drive subfolder names. Folder names in Drive must match an id below or the receipt is flagged for manual review.",
-  "_last_updated": "2026-04-10",
+  "_last_updated": "2026-05-25",
   "projects": [
     {
       "id": "NDL - 2026",
       "display_name": "Network Design Lab 2026-2027",
       "description": "Spark NDL launch year",
+      "active": true
+    },
+    {
+      "id": "CHA",
+      "display_name": "CHA",
+      "description": "Spark talks and engagements with CHA (Hospital Association — confirm Children's vs Colorado). First entry: Dan's Colorado talk.",
       "active": true
     },
     {
