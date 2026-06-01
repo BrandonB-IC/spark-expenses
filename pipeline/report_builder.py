@@ -169,6 +169,55 @@ def build_markdown_summary(
 
 
 # ---------------------------------------------------------------------------
+# Outstanding balances block (for the weekly email + dashboard)
+# ---------------------------------------------------------------------------
+
+def build_outstanding_markdown(
+    by_contractor: list[dict],
+    total_usd: float,
+    today: Optional[str] = None,
+) -> str:
+    """Render the standing 'what Spark still owes' block.
+
+    `by_contractor` is the output of reimbursements_store.outstanding_by_contractor().
+    Returns a Markdown section. When nothing is outstanding, returns a short
+    all-settled confirmation so the reader still gets positive closure.
+    """
+    today = today or datetime.now().strftime("%Y-%m-%d")
+    lines = []
+    lines.append("## Outstanding balances (unpaid)")
+    lines.append("")
+
+    if not by_contractor:
+        lines.append("_All reimbursements are settled — nothing outstanding._")
+        lines.append("")
+        return "\n".join(lines)
+
+    n_people = len(by_contractor)
+    lines.append(
+        f"Spark currently owes **{_money(total_usd)}** across "
+        f"{n_people} {'person' if n_people == 1 else 'people'} (as of {today})."
+    )
+    lines.append("")
+    lines.append("| Person | Unpaid | Claims | Oldest |")
+    lines.append("|---|---:|---:|---|")
+    for a in by_contractor:
+        age = a.get("oldest_age_days", 0)
+        age_str = "today" if age == 0 else (f"{age} day" if age == 1 else f"{age} days")
+        lines.append(
+            f"| {a.get('contractor_name')} "
+            f"| {_money(a.get('total_usd'))} "
+            f"| {a.get('n_claims')} "
+            f"| {age_str} |"
+        )
+    lines.append(f"| **Total** | **{_money(total_usd)}** | | |")
+    lines.append("")
+    lines.append("_Mark items paid in the dashboard: http://localhost:8770/outstanding_")
+    lines.append("")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # CSV ledger
 # ---------------------------------------------------------------------------
 

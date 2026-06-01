@@ -15,6 +15,7 @@ ENV/
 .env
 credentials.json
 token.json
+token.json.*
 token.backup-*
 *.token
 
@@ -22,6 +23,7 @@ token.backup-*
 config/contractors.json
 config/financial.json
 ledger.json
+reimbursements.json
 
 # Generated outputs
 reports/

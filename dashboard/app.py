@@ -29,14 +29,25 @@ import os
 import subprocess
 import sys
 import threading
-from datetime import datetime
+from datetime import datetime, date
 from pathlib import Path
 
 from dotenv import load_dotenv
-from flask import Flask, abort, jsonify, render_template, request
+from flask import Flask, abort, jsonify, redirect, render_template, request
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 load_dotenv(ROOT / ".env")
+
+from reimbursements_store import (
+    load_claims,
+    save_claims,
+    mark_paid,
+    mark_unpaid,
+    outstanding_claims,
+    outstanding_by_contractor,
+    total_outstanding,
+)
 
 REPORTS_DIR = ROOT / "reports"
 LEDGER_PATH = ROOT / "ledger.json"
@@ -111,13 +122,61 @@ def _ledger_summary() -> dict:
 def index():
     weeks = _list_weeks()
     ledger = _ledger_summary()
+    owed = total_outstanding(load_claims())
     return render_template(
         "index.html",
         weeks=weeks,
         ledger=ledger,
         run_state=_run_state,
         latest_week=weeks[0] if weeks else None,
+        owed=owed,
     )
+
+
+@app.route("/outstanding")
+def outstanding_page():
+    claims = load_claims()
+    by_contractor = outstanding_by_contractor(claims)
+    owed = total_outstanding(claims)
+    today = date.today()
+    rows = []
+    for c in outstanding_claims(claims):
+        try:
+            age = (today - date.fromisoformat(c.get("created_date"))).days
+        except (TypeError, ValueError):
+            age = 0
+        rows.append({**c, "age_days": age})
+    paid = sorted(
+        (c for c in claims if c.get("reimbursed")),
+        key=lambda c: (c.get("reimbursed_date") or ""),
+        reverse=True,
+    )
+    return render_template(
+        "outstanding.html",
+        by_contractor=by_contractor,
+        owed=owed,
+        unpaid=rows,
+        paid=list(paid),
+    )
+
+
+@app.route("/reimburse", methods=["POST"])
+def reimburse():
+    cid = request.form.get("claim_id", "")
+    reference = (request.form.get("reference") or "").strip() or None
+    claims = load_claims()
+    if mark_paid(claims, cid, reference=reference):
+        save_claims(claims)
+    return redirect("/outstanding")
+
+
+@app.route("/unreimburse", methods=["POST"])
+def unreimburse():
+    cid = request.form.get("claim_id", "")
+    claims = load_claims()
+    if mark_unpaid(claims, cid):
+        save_claims(claims)
+    return redirect("/outstanding")
 
 
 @app.route("/report/<week_label>")

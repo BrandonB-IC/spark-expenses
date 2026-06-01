@@ -50,7 +50,18 @@ from pipeline.drive_reader import list_receipts_for_contractor, download_file_by
 from pipeline.hasher import sha256_bytes
 from pipeline.vision_extractor import extract
 from pipeline.rules_engine import classify
-from pipeline.report_builder import build_markdown_summary, build_csv_ledger
+from pipeline.report_builder import (
+    build_markdown_summary,
+    build_csv_ledger,
+    build_outstanding_markdown,
+)
+from reimbursements_store import (
+    load_claims,
+    save_claims,
+    upsert_claim,
+    outstanding_by_contractor,
+    total_outstanding,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -380,6 +391,36 @@ def run(
         save_ledger(ledger)
         logger.info(f"Ledger saved ({len(ledger)} total entries).")
 
+    # ---- Record/refresh reimbursement claims (what Spark owes) ----
+    # One claim per contractor per week. Only created when new receipts were
+    # actually added this run, so re-runs don't duplicate or disturb paid claims.
+    if not dry_run:
+        claims = load_claims()
+        for c, classified in all_classified:
+            counts = classified["counts"]
+            reimb = float(classified["summary"]["total_reimbursable"] or 0)
+            if counts["new_ledger_entries"] > 0 and reimb > 0:
+                shas = sorted({r["sha256"] for r in classified["receipts"] if r.get("sha256")})
+                claim = upsert_claim(
+                    claims,
+                    contractor_id=c["id"],
+                    contractor_name=c.get("display_name") or c["id"],
+                    week_label=week_label,
+                    reimbursable_usd=reimb,
+                    receipt_shas=shas,
+                )
+                if claim.get("_locked"):
+                    logger.warning(
+                        f"  Claim {claim['id']} is already marked reimbursed; "
+                        f"{counts['new_ledger_entries']} new receipt(s) this run were NOT folded into it. Review manually."
+                    )
+                else:
+                    logger.info(
+                        f"  Claim recorded: {claim['id']} += ${reimb:,.2f} this run "
+                        f"→ ${claim['reimbursable_usd']:,.2f} total ({claim['n_receipts']} receipts)"
+                    )
+        save_claims(claims)
+
     # Build per-contractor reports
     md_files = []
     csv_files = []
@@ -400,15 +441,24 @@ def run(
         csv_files.append(csv_path)
         logger.info(f"Wrote {md_path.name} and {csv_path.name}")
 
-    # Determine if there's anything new to email about
+    # ---- Standing "what Spark owes" digest (from the claims store) ----
+    claims = load_claims()
+    outstanding = outstanding_by_contractor(claims)
+    owed = total_outstanding(claims)
+    outstanding_md = build_outstanding_markdown(
+        outstanding, owed, today=dt.date.today().isoformat()
+    )
+
     total_new = sum(c[1]["counts"]["extracted_receipts"] for c in all_classified)
-    if total_new == 0:
-        logger.info("No new receipts to report on this run. Skipping email.")
+
+    # Nothing new AND nothing owed -> truly nothing to say.
+    if total_new == 0 and owed == 0:
+        logger.info("No new receipts and nothing outstanding. Skipping email.")
         logger.info("=== Run complete ===")
         return 0
 
-    # Combined email body
-    email_body_md_parts = []
+    # Build body: outstanding block always on top, then any new per-contractor reports.
+    email_body_md_parts = [outstanding_md]
     for c, classified in all_classified:
         if classified["counts"]["extracted_receipts"] == 0:
             continue
@@ -420,15 +470,24 @@ def run(
             f"~${cost['approx_usd']:.4f} ({cost['input_tokens']} in / {cost['output_tokens']} out tokens)_\n"
         )
 
-    combined_md = "\n\n---\n\n".join(email_body_md_parts)
+    combined_md = "\n\n---\n\n".join(p for p in email_body_md_parts if p.strip())
     html_body = markdown_to_html_email(combined_md)
 
+    if total_new > 0:
+        subject = f"Spark Expense Report — {week_label}"
+    else:
+        # Quiet week, but money is still owed — keep the buildup visible.
+        subject = f"Spark Expense — ${owed:,.2f} outstanding (no new receipts)"
+
     if no_email or dry_run:
-        logger.info(f"Email send skipped ({'dry-run' if dry_run else '--no-email'}).")
+        logger.info(
+            f"Email send skipped ({'dry-run' if dry_run else '--no-email'}). "
+            f"Outstanding owed: ${owed:,.2f}"
+        )
     else:
         try:
             send_report_email(
-                subject=f"Spark Expense Report — {week_label}",
+                subject=subject,
                 html_body=html_body,
                 attachments=csv_files,
                 logger=logger,

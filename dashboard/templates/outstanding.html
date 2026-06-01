@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Outstanding — Spark Expense Engine{% endblock %}
+{% block nav_outstanding %}active{% endblock %}
+
+{% block content %}
+
+<section class="hero">
+  <div class="hero-left">
+    <h1>Outstanding balances</h1>
+    <p class="muted">
+      {% if owed %}
+        Spark currently owes <strong>${{ '%.2f'|format(owed) }}</strong>
+        across {{ by_contractor|length }}
+        {{ 'person' if by_contractor|length == 1 else 'people' }}.
+      {% else %}
+        Everything is settled. Nothing is currently owed.
+      {% endif %}
+    </p>
+  </div>
+</section>
+
+{% if by_contractor %}
+<section class="card">
+  <h2>By person</h2>
+  <table class="data">
+    <thead><tr><th>Person</th><th style="text-align:right">Unpaid</th><th style="text-align:right">Claims</th><th>Oldest</th></tr></thead>
+    <tbody>
+      {% for a in by_contractor %}
+      <tr>
+        <td><strong>{{ a.contractor_name }}</strong></td>
+        <td style="text-align:right">${{ '%.2f'|format(a.total_usd) }}</td>
+        <td style="text-align:right">{{ a.n_claims }}</td>
+        <td>
+          {% if a.oldest_age_days == 0 %}today
+          {% elif a.oldest_age_days == 1 %}1 day
+          {% else %}{{ a.oldest_age_days }} days{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      <tr>
+        <td><strong>Total</strong></td>
+        <td style="text-align:right"><strong>${{ '%.2f'|format(owed) }}</strong></td>
+        <td></td><td></td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Unpaid claims</h2>
+  <p class="muted">Mark a claim paid once you've actually sent the reimbursement. Add a reference (check #, ACH date) if you like.</p>
+  <table class="data">
+    <thead><tr><th>Person</th><th>Week</th><th style="text-align:right">Amount</th><th style="text-align:right">Receipts</th><th>Age</th><th>Mark paid</th></tr></thead>
+    <tbody>
+      {% for c in unpaid %}
+      <tr>
+        <td><strong>{{ c.contractor_name }}</strong></td>
+        <td>{{ c.week_label }}</td>
+        <td style="text-align:right">${{ '%.2f'|format(c.reimbursable_usd) }}</td>
+        <td style="text-align:right">{{ c.n_receipts }}</td>
+        <td>
+          {% if c.age_days == 0 %}today
+          {% elif c.age_days == 1 %}1 day
+          {% else %}{{ c.age_days }} days{% endif %}
+        </td>
+        <td>
+          <form method="post" action="/reimburse" style="display:flex;gap:6px;align-items:center;margin:0">
+            <input type="hidden" name="claim_id" value="{{ c.id }}">
+            <input type="text" name="reference" placeholder="ref (optional)" style="width:120px;padding:4px 6px;font-size:12px">
+            <button type="submit" class="primary" style="padding:4px 10px">Mark paid</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{% if paid %}
+<section class="card" style="margin-top:24px">
+  <h2>Paid history</h2>
+  <table class="data">
+    <thead><tr><th>Person</th><th>Week</th><th style="text-align:right">Amount</th><th>Paid on</th><th>Reference</th><th></th></tr></thead>
+    <tbody>
+      {% for c in paid %}
+      <tr>
+        <td>{{ c.contractor_name }}</td>
+        <td>{{ c.week_label }}</td>
+        <td style="text-align:right">${{ '%.2f'|format(c.reimbursable_usd) }}</td>
+        <td>{{ c.reimbursed_date or '—' }}</td>
+        <td>{{ c.reference or '—' }}</td>
+        <td>
+          <form method="post" action="/unreimburse" style="margin:0" onsubmit="return confirm('Move this claim back to unpaid?')">
+            <input type="hidden" name="claim_id" value="{{ c.id }}">
+            <button type="submit" class="btn-sm">undo</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{% endblock %}
