@@ -57,6 +57,11 @@ def main() -> None:
     for c in claims:
         if args.contractor and c.get("contractor_id") != args.contractor:
             continue
+        # Immutability: never recompute a claim that has already been paid.
+        if c.get("reimbursed"):
+            print(f"  SKIP (already paid, immutable): {c['id']}  ${c.get('reimbursable_usd')}")
+            continue
+
         shas = c.get("receipt_shas") or []
         # Skip invoice-derived claims (reimbursable != simple ledger sum).
         if shas and all(s in invoice_shas for s in shas):
