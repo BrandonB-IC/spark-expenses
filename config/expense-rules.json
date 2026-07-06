@@ -1,8 +1,9 @@
 {
-  "version": "0.1.0-draft",
-  "last_updated": "2026-04-10",
-  "status": "draft - pending Spark partner review",
-  "review_required_before": "any real reimbursements",
+  "version": "1.0.0",
+  "last_updated": "2026-07-05",
+  "status": "approved",
+  "approved_date": "2026-07-05",
+  "approved_by": "Brandon",
   "per_diem": {
     "rate_usd": 100,
     "applies_when": "travel_detected",
@@ -54,7 +55,7 @@
     "receipt_required_categories": ["travel-airfare", "travel-hotel"],
     "receipt_required_over_usd": 75,
     "attestation_definition": "An itemized, self-authored invoice from the contractor (their name as the biller) constitutes attestation for v1. A future version may require an explicit signed certification line.",
-    "status": "v1 - set by Brandon 2026-07-05, pending broader partner review",
+    "status": "approved 2026-07-05",
     "note": "Hybrid substantiation policy. An invoice line is reimbursable on attestation ONLY if it is NOT in receipt_required_categories AND its amount is under receipt_required_over_usd. Lodging, airfare, and any line at/over the threshold require a matching receipt before payment (held as pending verification). Set invoice_attestation_accepted=false to fall back to receipts-only (all invoice lines held)."
   },
   "currency": {

@@ -87,6 +87,18 @@ with a separate MGB invoice — a receipt is needed to confirm the split).
 
 ---
 
+## [1.0.0] — 2026-07-05 — APPROVED (out of draft)
+
+**Approved by:** Brandon (2026-07-05)
+
+**Change:** Flipped `status` from `draft - pending Spark partner review` to `approved`; bumped version to 1.0.0. This is the first production ruleset — the engine's reimbursements are no longer "tracking only." Added `approved_date` + `approved_by`; the substantiation block status likewise moved to approved.
+
+**Scope of approval:** everything through [0.2.0-draft] — per-diem ($100/day), hotel cap ($300/night), tiered airfare + 14-day advance rule, $500 large-item flag, credit-card-slip flag, and the hybrid invoice **substantiation** policy (attestation under $75 for non-lodging/airfare; receipts required otherwise).
+
+**Note on previously-open questions:** the items flagged in earlier entries — company-card-meal vs per-diem overlap, whether the hotel cap should rise, and in-flight wifi treatment — are approved **as currently coded** for v1. They are not blockers to going live; any change is a normal future changelog entry + version bump. If Brandon later walks Peter/Dan/David through specific adjustments, log them here.
+
+---
+
 <!-- Template for future entries:
 
 ## [0.2.0] — YYYY-MM-DD
