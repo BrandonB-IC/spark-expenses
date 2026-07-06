@@ -39,6 +39,10 @@ REIMBURSEMENTS_PATH = ROOT / "reimbursements.json"
 PENDING_PATH = ROOT / "pending_invoices.json"
 CONTRACTORS_PATH = ROOT / "config" / "contractors.json"
 
+import sys as _sys
+_sys.path.insert(0, str(ROOT))
+import adjustments_store as _adjs
+
 BUCKETS = ("reimbursed", "outstanding", "pending")
 
 
@@ -58,23 +62,27 @@ def load_sources() -> dict:
     pending = _load_json(PENDING_PATH, {}).get("lines", [])
     contractors = _load_json(CONTRACTORS_PATH, {}).get("contractors", [])
     names = {c["id"]: (c.get("display_name") or c["id"]) for c in contractors}
-    return {"ledger": ledger, "claims": claims, "pending": pending, "names": names}
+    adjustments = _adjs.load_adjustments()
+    return {"ledger": ledger, "claims": claims, "pending": pending,
+            "names": names, "adjustments": adjustments}
 
 
 # ---------------------------------------------------------------------------
 # Attribution
 # ---------------------------------------------------------------------------
 
-def _claim_project_split(claim: dict, ledger: dict) -> dict:
+def _claim_project_split(claim: dict, ledger: dict, adjustments: dict | None = None) -> dict:
     """Return {project_id: fraction} for how a claim's reimbursable splits by
-    project, using the ledger's extracted amount per project as weights."""
+    project, using each receipt's adjusted amount per project as weights."""
+    adjustments = adjustments or {}
     by_project: dict[str, float] = {}
     for sha in claim.get("receipt_shas") or []:
         entry = ledger.get(sha)
         if not entry:
             continue
         proj = entry.get("project_id") or "(unassigned)"
-        by_project[proj] = by_project.get(proj, 0.0) + float(entry.get("extracted_total_usd") or 0)
+        base = float(entry.get("extracted_total_usd") or 0)
+        by_project[proj] = by_project.get(proj, 0.0) + _adjs.adjusted_amount(adjustments, sha, base)
 
     if not by_project:
         return {"(unassigned)": 1.0}
@@ -91,9 +99,11 @@ def _blank_bucket() -> dict:
     return {b: 0.0 for b in BUCKETS}
 
 
-def build_matrix(ledger: dict, claims: list[dict], pending: list[dict], names: dict | None = None) -> dict:
+def build_matrix(ledger: dict, claims: list[dict], pending: list[dict],
+                 names: dict | None = None, adjustments: dict | None = None) -> dict:
     """Build the project x person spend matrix. See module docstring for buckets."""
     names = names or {}
+    adjustments = adjustments or {}
     cells: dict[tuple[str, str], dict] = {}
     projects: set[str] = set()
     people: set[str] = set()
@@ -110,7 +120,7 @@ def build_matrix(ledger: dict, claims: list[dict], pending: list[dict], names: d
         if amount <= 0:
             continue
         bucket = "reimbursed" if c.get("reimbursed") else "outstanding"
-        for proj, frac in _claim_project_split(c, ledger).items():
+        for proj, frac in _claim_project_split(c, ledger, adjustments).items():
             _cell(proj, person)[bucket] += amount * frac
 
     # Pending held invoice lines -> pending bucket, by explicit project.

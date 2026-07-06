@@ -25,6 +25,7 @@ config/financial.json
 ledger.json
 reimbursements.json
 pending_invoices.json
+adjustments.json
 
 # Generated outputs
 reports/

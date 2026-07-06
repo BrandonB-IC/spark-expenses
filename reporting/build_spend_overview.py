@@ -198,7 +198,7 @@ def generate(output_path: Path | None = None, generated: str | None = None) -> P
     output_path = output_path or OUTPUT_PATH
     generated = generated or datetime.now().strftime("%Y-%m-%d %H:%M")
     s = load_sources()
-    matrix = build_matrix(s["ledger"], s["claims"], s["pending"], s["names"])
+    matrix = build_matrix(s["ledger"], s["claims"], s["pending"], s["names"], s["adjustments"])
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(render_html(matrix, generated), encoding="utf-8")
     return output_path

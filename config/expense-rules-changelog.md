@@ -99,6 +99,20 @@ with a separate MGB invoice — a receipt is needed to confirm the split).
 
 ---
 
+## [1.1.0] — 2026-07-06
+
+**Set by:** Brandon (2026-07-06)
+
+**Change:** `per_diem.enabled: false` — per-diem is OFF for the current reimbursement round. Reimbursement is direct/actual receipts only, no per-diem added or meal replacement.
+
+**Why:** Brandon's call for this round: reimburse actual documented spend rather than a flat per-diem. Simpler to reconcile and matches how contractors are tracking their own receipts. Expected to change ~August 2026; flip `enabled` back to `true` to re-enable (the rate and rules are preserved, just dormant).
+
+**Also introduced this round (not a rules value, but related policy):**
+- **Hotel business-nights:** Spark reimburses only the business-necessary nights of a hotel stay; extra/personal nights are excluded. For now this is handled via a per-receipt **adjustment** (flag-and-adjust) — the engine flags multi-night hotels and the reimbursable amount is set to the business nights. A future version may automate this from event dates.
+- **Per-receipt adjustments/corrections:** introduced `adjustments.json` (a per-receipt override/void layer) to correct OCR misreads, void duplicates, and trim non-reimbursable portions, with a reason on each. Applied when claims are computed.
+
+---
+
 <!-- Template for future entries:
 
 ## [0.2.0] — YYYY-MM-DD

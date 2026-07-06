@@ -1,10 +1,12 @@
 {
-  "version": "1.0.0",
-  "last_updated": "2026-07-05",
+  "version": "1.1.0",
+  "last_updated": "2026-07-06",
   "status": "approved",
   "approved_date": "2026-07-05",
   "approved_by": "Brandon",
   "per_diem": {
+    "enabled": false,
+    "enabled_note": "OFF for the current reimbursement round (Brandon, 2026-07-06): direct receipt reimbursement only, no per-diem. Expected to change ~August 2026 — flip back to true to re-enable.",
     "rate_usd": 100,
     "applies_when": "travel_detected",
     "replaces": ["meals", "incidentals"],

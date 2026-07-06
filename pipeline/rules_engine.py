@@ -105,6 +105,20 @@ def apply_per_diem(
     - total_per_diem_replaced_amount: sum of receipt amounts that were zeroed
     """
     per_diem_rules = rules.get("per_diem", {})
+
+    # Per-diem can be switched off entirely (direct receipt reimbursement only).
+    # When off: no synthetic per-diem rows, no meal/incidental replacement —
+    # each receipt is reimbursed at its own amount (honoring any override).
+    if not per_diem_rules.get("enabled", True):
+        updated = []
+        for r in receipts:
+            r = dict(r)
+            override = r.get("reimbursable_override")
+            r["reimbursable_amount"] = float(override) if override is not None else float(r.get("amount") or 0)
+            r["replaced_by_per_diem"] = False
+            updated.append(r)
+        return updated, [], 0.0
+
     rate = per_diem_rules.get("rate_usd", 0)
     replaces = set(per_diem_rules.get("replaces", []))  # e.g. {"meals", "incidentals"}
     incidentals_includes = per_diem_rules.get("incidentals_includes", [])
@@ -211,12 +225,16 @@ def flag_violations(
             flagged = True
             reasons.append("Credit card slip with no itemization — cannot audit line items")
 
-        # Rule 3: hotel night cap (only meaningful if we have line items showing per-night cost)
+        # Rule 3: hotel — confirm business nights, and check the per-night cap.
         if r.get("category") == "travel-hotel":
+            flagged = True
+            reasons.append(
+                "Hotel — confirm Spark pays only the business nights; exclude any personal/extra "
+                "nights (set a per-receipt adjustment if the folio spans more nights than the trip)"
+            )
             # naive check: if total > nights * cap, flag. We don't always know
             # nights, so for v1 just compare total to cap (conservative — over-flags).
             if amount > hotel_cap:
-                flagged = True
                 reasons.append(
                     f"Hotel ${amount:.2f} exceeds cap ${hotel_cap}/night — verify number of nights and per-night rate"
                 )
