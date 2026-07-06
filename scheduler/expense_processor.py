@@ -533,7 +533,7 @@ def run(
                 else:
                     logger.info(
                         f"  Claim recorded: {claim['id']} += ${reimb:,.2f} this run "
-                        f"→ ${claim['reimbursable_usd']:,.2f} total ({claim['n_receipts']} receipts)"
+                        f"-> ${claim['reimbursable_usd']:,.2f} total ({claim['n_receipts']} receipts)"
                     )
         save_claims(claims)
 
