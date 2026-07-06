@@ -117,7 +117,41 @@ If nothing is visible, return [].
 """
 
 
+DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+
+def _extract_docx_text(file_bytes: bytes) -> str:
+    """Pull the text (paragraphs + table cells) out of a .docx file.
+
+    Contractors sometimes submit their expense summary as a Word document rather
+    than a receipt. The vision API can't read .docx natively, so we extract the
+    text (tables carry the line items) and hand it to the model as text — it then
+    classifies it (almost always an 'invoice') and pulls the line items out.
+    """
+    from io import BytesIO
+    from docx import Document
+
+    doc = Document(BytesIO(file_bytes))
+    parts: list[str] = []
+    for p in doc.paragraphs:
+        if p.text.strip():
+            parts.append(p.text.strip())
+    for table in doc.tables:
+        for row in table.rows:
+            cells = [c.text.strip() for c in row.cells]
+            if any(cells):
+                parts.append(" | ".join(cells))
+    return "\n".join(parts)
+
+
 def _build_content_block(file_bytes: bytes, mime_type: str) -> dict:
+    if mime_type == DOCX_MIME:
+        text = _extract_docx_text(file_bytes)
+        return {
+            "type": "text",
+            "text": "The following is the extracted text of a submitted .docx expense "
+                    "document (tables are rendered as pipe-separated rows):\n\n" + text,
+        }
     b64 = base64.standard_b64encode(file_bytes).decode("ascii")
     if mime_type == "application/pdf":
         return {
