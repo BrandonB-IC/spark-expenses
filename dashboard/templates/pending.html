@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}Awaiting receipts — Spark Expense Engine{% endblock %}
+{% block nav_pending %}active{% endblock %}
+
+{% block content %}
+
+<section class="hero">
+  <div class="hero-left">
+    <h1>Invoice lines awaiting receipts</h1>
+    <p class="muted">
+      {% if total %}
+        <strong>${{ '%.2f'|format(total) }}</strong> of invoiced expense is held pending receipts
+        across {{ by_contractor|length }}
+        {{ 'person' if by_contractor|length == 1 else 'people' }}.
+        These are lodging, airfare, or at/over-threshold lines submitted on an invoice without
+        receipts. They are <strong>not reimbursed</strong> until a matching receipt arrives and
+        auto-reconciles at the invoice-billed amount.
+      {% else %}
+        No invoice lines are awaiting receipts.
+      {% endif %}
+    </p>
+  </div>
+</section>
+
+{% if by_contractor %}
+<section class="card">
+  <h2>By person</h2>
+  <table class="data">
+    <thead><tr><th>Person</th><th style="text-align:right">Held</th><th style="text-align:right">Lines</th><th>Oldest</th></tr></thead>
+    <tbody>
+      {% for a in by_contractor %}
+      <tr>
+        <td><strong>{{ a.contractor_name }}</strong></td>
+        <td style="text-align:right">${{ '%.2f'|format(a.total_usd) }}</td>
+        <td style="text-align:right">{{ a.n_lines }}</td>
+        <td>
+          {% if a.oldest_age_days == 0 %}today
+          {% elif a.oldest_age_days == 1 %}1 day
+          {% else %}{{ a.oldest_age_days }} days{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      <tr>
+        <td><strong>Total</strong></td>
+        <td style="text-align:right"><strong>${{ '%.2f'|format(total) }}</strong></td>
+        <td></td><td></td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Held lines</h2>
+  <p class="muted">Each line is released automatically when the contractor uploads a matching receipt.
+  To release one, ask for the underlying receipt.</p>
+  <table class="data">
+    <thead><tr><th>Person</th><th>Project</th><th>Date</th><th>Merchant</th><th>Category</th><th style="text-align:right">Invoice-billed</th><th>Invoice</th><th>Age</th></tr></thead>
+    <tbody>
+      {% for l in awaiting %}
+      <tr>
+        <td><strong>{{ l.contractor_name }}</strong></td>
+        <td>{{ l.project_id or '—' }}</td>
+        <td>{{ l.date or '—' }}</td>
+        <td>{{ l.merchant or '—' }}{% if l.is_allocated %} <span title="Allocated/shared cost">⚖︎</span>{% endif %}</td>
+        <td>{{ l.category or '—' }}</td>
+        <td style="text-align:right">${{ '%.2f'|format(l.amount) }}</td>
+        <td>{{ l.invoice_number or '—' }}</td>
+        <td>
+          {% if l.age_days == 0 %}today
+          {% elif l.age_days == 1 %}1 day
+          {% else %}{{ l.age_days }} days{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{% if released %}
+<section class="card" style="margin-top:24px">
+  <h2>Released (receipt received)</h2>
+  <table class="data">
+    <thead><tr><th>Person</th><th>Merchant</th><th style="text-align:right">Reimbursed</th><th style="text-align:right">Receipt was</th><th>Matched on</th></tr></thead>
+    <tbody>
+      {% for l in released %}
+      <tr>
+        <td>{{ l.contractor_name }}</td>
+        <td>{{ l.merchant or '—' }}</td>
+        <td style="text-align:right">${{ '%.2f'|format(l.released_amount) }}</td>
+        <td style="text-align:right">
+          {% if l.matched_receipt and l.matched_receipt.receipt_amount is not none %}
+            ${{ '%.2f'|format(l.matched_receipt.receipt_amount) }}
+            {% if l.matched_receipt.receipt_amount != l.released_amount %}<span title="Split/allocated">⚖︎</span>{% endif %}
+          {% else %}—{% endif %}
+        </td>
+        <td>{{ l.matched_date or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{% endblock %}

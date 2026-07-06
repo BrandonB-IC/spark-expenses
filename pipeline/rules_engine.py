@@ -38,14 +38,6 @@ TRAVEL_DAY_TRIGGER_CATEGORIES = {
 
 MEAL_CATEGORIES = {"meals"}
 
-# Reason attached to every invoice-derived row. Phase A holds ALL invoice lines
-# for manual verification rather than auto-reimbursing self-asserted amounts.
-# (Phase B replaces this blanket hold with a tiered substantiation policy.)
-INVOICE_PENDING_REASON = (
-    "Submitted as an invoice, not a receipt — pending manual verification; "
-    "not auto-reimbursed"
-)
-
 
 # ---------------------------------------------------------------------------
 # Travel day detection
@@ -122,6 +114,17 @@ def apply_per_diem(
 
     for r in receipts:
         r = dict(r)  # don't mutate caller's data
+
+        # A reconciled receipt (one that substantiates a held invoice line) carries
+        # an explicit reimbursable_override — the invoice's allocated amount. Honor
+        # it verbatim and never let per-diem replace it.
+        override = r.get("reimbursable_override")
+        if override is not None:
+            r["replaced_by_per_diem"] = False
+            r["reimbursable_amount"] = float(override)
+            updated.append(r)
+            continue
+
         is_meal = ("meals" in replaces) and (r.get("category") in MEAL_CATEGORIES)
         is_incidental = ("incidentals" in replaces) and _is_incidental(r, incidentals_includes)
 
@@ -248,26 +251,55 @@ def flag_violations(
 
 
 # ---------------------------------------------------------------------------
-# Invoice quarantine (Phase A)
+# Invoice substantiation (Phase B)
 # ---------------------------------------------------------------------------
 
-def quarantine_invoice_rows(invoice_rows: list[dict]) -> list[dict]:
-    """Hold invoice-derived rows out of the reimbursable total.
+def apply_substantiation(invoice_rows: list[dict], rules: dict) -> list[dict]:
+    """Decide, per invoice line, whether it is reimbursable on attestation or
+    held pending a receipt (hybrid substantiation policy).
 
-    Invoices are self-asserted expense claims with no proof of payment. Rather
-    than auto-reimburse them, we zero their reimbursable amount and flag every
-    line for manual verification. The stated amounts are preserved in `amount`
-    so the report can show what was claimed.
+    An invoice line is REIMBURSABLE on attestation only if the policy accepts
+    attestation AND the line is neither in a receipt-required category (lodging,
+    airfare) nor at/over the per-item receipt threshold. Everything else is HELD
+    (reimbursable zeroed, flagged) until the underlying receipt is provided.
+
+    Each row gets a `substantiation_status` of "invoice_attested" or
+    "receipt_required". The stated `amount` is always preserved.
     """
+    sub = rules.get("substantiation", {})
+    attestation_ok = bool(sub.get("invoice_attestation_accepted", False))
+    rr_categories = set(sub.get("receipt_required_categories", []))
+    rr_threshold = sub.get("receipt_required_over_usd")
+
     out = []
     for r in invoice_rows:
         r = dict(r)
-        r["reimbursable_amount"] = 0.0
         r["replaced_by_per_diem"] = False
-        r["flagged"] = True
+        amount = float(r.get("amount") or 0)
+        cat = r.get("category") or ""
         reasons = list(r.get("flag_reasons") or [])
-        if INVOICE_PENDING_REASON not in reasons:
-            reasons.append(INVOICE_PENDING_REASON)
+
+        triggers = []
+        if not attestation_ok:
+            triggers.append("receipts-only policy (invoice attestation disabled)")
+        if cat in rr_categories:
+            triggers.append(f"{cat} always requires a receipt")
+        if rr_threshold is not None and amount >= float(rr_threshold):
+            triggers.append(f"${amount:,.2f} is at/over the ${rr_threshold} receipt threshold")
+
+        if triggers:
+            r["substantiation_status"] = "receipt_required"
+            r["reimbursable_amount"] = 0.0
+            r["flagged"] = True
+            reasons.append("Receipt required before payment — " + "; ".join(triggers))
+        else:
+            r["substantiation_status"] = "invoice_attested"
+            r["reimbursable_amount"] = amount
+            r["flagged"] = bool(r.get("flagged", False))
+            att_note = "Reimbursed on invoice attestation (under threshold, non-lodging/airfare; no receipt)"
+            existing = r.get("notes")
+            r["notes"] = f"{existing} · {att_note}" if existing else att_note
+
         r["flag_reasons"] = reasons
         out.append(r)
     return out
@@ -311,29 +343,31 @@ def classify(
     receipt_result_rows = receipts_after_per_diem + synthetic
     receipt_result_rows = flag_violations(receipt_result_rows, rules, contractor)
 
-    quarantined_invoices = quarantine_invoice_rows(invoice_rows)
+    invoice_result_rows = apply_substantiation(invoice_rows, rules)
+    held_rows = [r for r in invoice_result_rows if r.get("substantiation_status") == "receipt_required"]
+    attested_rows = [r for r in invoice_result_rows if r.get("substantiation_status") == "invoice_attested"]
 
-    all_rows = receipt_result_rows + quarantined_invoices
+    all_rows = receipt_result_rows + invoice_result_rows
 
-    # Reimbursable + flags are computed from receipt rows only; invoices are $0
-    # and tracked separately as pending verification.
+    # Reimbursable = receipt rows + per-diem + attested invoice lines. Held
+    # invoice lines (receipt_required) stay at $0 and are tracked as pending.
     total_extracted = sum(float(r.get("amount") or 0) for r in receipt_rows)
-    total_reimbursable = sum(
-        float(r.get("reimbursable_amount") or 0) for r in receipt_result_rows
-    )
+    total_reimbursable = sum(float(r.get("reimbursable_amount") or 0) for r in all_rows)
     total_per_diem_added = sum(
         float(r.get("amount") or 0) for r in synthetic
     )
+    # flag_count/flagged_amount cover receipt-side review items only; held
+    # invoice lines are reported separately under pending verification.
     flag_count = sum(1 for r in receipt_result_rows if r.get("flagged"))
     flagged_amount = sum(
         float(r.get("reimbursable_amount") or 0)
         for r in receipt_result_rows
         if r.get("flagged")
     )
-    pending_verification_amount = sum(
-        float(r.get("amount") or 0) for r in quarantined_invoices
-    )
-    pending_verification_count = len(quarantined_invoices)
+    pending_verification_amount = sum(float(r.get("amount") or 0) for r in held_rows)
+    pending_verification_count = len(held_rows)
+    invoice_attested_amount = sum(float(r.get("reimbursable_amount") or 0) for r in attested_rows)
+    invoice_attested_count = len(attested_rows)
 
     warnings = []
     per_diem_rules = rules.get("per_diem", {})
@@ -349,14 +383,20 @@ def classify(
         )
     if pending_verification_count:
         invoice_numbers = sorted({
-            str(r.get("invoice_number")) for r in quarantined_invoices if r.get("invoice_number")
+            str(r.get("invoice_number")) for r in held_rows if r.get("invoice_number")
         })
         inv_ref = f" (invoice {', '.join(invoice_numbers)})" if invoice_numbers else ""
         warnings.append(
-            f"{pending_verification_count} line(s) totaling {round(pending_verification_amount, 2)} "
-            f"were submitted as an INVOICE{inv_ref}, not receipts. These are held for manual "
-            f"verification and are NOT included in the reimbursable total. Ask for the underlying "
-            f"receipts before paying."
+            f"{pending_verification_count} invoice line(s) totaling {round(pending_verification_amount, 2)}"
+            f"{inv_ref} require a receipt before payment (lodging, airfare, or at/over the "
+            f"${rules.get('substantiation', {}).get('receipt_required_over_usd', '?')} threshold). "
+            f"Held out of the reimbursable total — request the underlying receipts."
+        )
+    if invoice_attested_count:
+        warnings.append(
+            f"{invoice_attested_count} invoice line(s) totaling {round(invoice_attested_amount, 2)} "
+            f"were reimbursed on ATTESTATION (under threshold, non-lodging/airfare) without a receipt, "
+            f"per the substantiation policy."
         )
 
     return {
@@ -373,6 +413,8 @@ def classify(
             "flagged_amount": round(flagged_amount, 2),
             "pending_verification_amount": round(pending_verification_amount, 2),
             "pending_verification_count": pending_verification_count,
+            "invoice_attested_amount": round(invoice_attested_amount, 2),
+            "invoice_attested_count": invoice_attested_count,
         },
         "warnings": warnings,
     }

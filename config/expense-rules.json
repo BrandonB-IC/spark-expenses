@@ -49,6 +49,14 @@
     "reason": "missing_itemization",
     "note": "Credit card slips without merchant line items cannot be audited"
   },
+  "substantiation": {
+    "invoice_attestation_accepted": true,
+    "receipt_required_categories": ["travel-airfare", "travel-hotel"],
+    "receipt_required_over_usd": 75,
+    "attestation_definition": "An itemized, self-authored invoice from the contractor (their name as the biller) constitutes attestation for v1. A future version may require an explicit signed certification line.",
+    "status": "v1 - set by Brandon 2026-07-05, pending broader partner review",
+    "note": "Hybrid substantiation policy. An invoice line is reimbursable on attestation ONLY if it is NOT in receipt_required_categories AND its amount is under receipt_required_over_usd. Lodging, airfare, and any line at/over the threshold require a matching receipt before payment (held as pending verification). Set invoice_attestation_accepted=false to fall back to receipts-only (all invoice lines held)."
+  },
   "currency": {
     "default": "USD",
     "fx_source": "exchangerate.host",

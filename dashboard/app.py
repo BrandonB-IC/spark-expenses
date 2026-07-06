@@ -48,6 +48,7 @@ from reimbursements_store import (
     outstanding_by_contractor,
     total_outstanding,
 )
+import pending_invoices_store as pend
 
 REPORTS_DIR = ROOT / "reports"
 LEDGER_PATH = ROOT / "ledger.json"
@@ -177,6 +178,36 @@ def unreimburse():
     if mark_unpaid(claims, cid):
         save_claims(claims)
     return redirect("/outstanding")
+
+
+@app.route("/pending")
+def pending_page():
+    lines = pend.load_pending()
+    by_contractor = pend.awaiting_by_contractor(lines)
+    total = pend.total_awaiting(lines)
+    today = date.today()
+
+    awaiting_rows = []
+    for l in pend.awaiting(lines):
+        try:
+            age = (today - date.fromisoformat(l.get("created_date"))).days
+        except (TypeError, ValueError):
+            age = 0
+        awaiting_rows.append({**l, "age_days": age})
+    awaiting_rows.sort(key=lambda r: (r.get("contractor_name") or "", r.get("date") or ""))
+
+    released = sorted(
+        (l for l in lines if l.get("status") == "receipt_matched"),
+        key=lambda l: (l.get("matched_date") or ""),
+        reverse=True,
+    )
+    return render_template(
+        "pending.html",
+        by_contractor=by_contractor,
+        total=total,
+        awaiting=awaiting_rows,
+        released=list(released),
+    )
 
 
 @app.route("/report/<week_label>")

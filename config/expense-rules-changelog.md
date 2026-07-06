@@ -46,6 +46,47 @@ A flat airfare cap unfairly burdens west-coast contractors traveling east while 
 
 ---
 
+## [0.2.0-draft] — 2026-07-05
+
+**Set by:** Brandon (for v1; pending broader partner review with Peter/Dan/David)
+**Conversation date:** 2026-07-05
+
+**Change:** Added a `substantiation` block defining how invoices (as opposed to receipts) are handled.
+- `invoice_attestation_accepted: true`
+- `receipt_required_categories: ["travel-airfare", "travel-hotel"]`
+- `receipt_required_over_usd: 75`
+
+**Why:**
+Contractors began uploading **invoices** — self-prepared, itemized expense summaries with no
+attached proof-of-payment receipts — into their receipt folders (first live case: Peter
+Margolis's June NDL travel invoice, $1,645.36, no receipts). The old pipeline OCR'd invoice
+line items as receipts and rolled them straight into "outstanding owed," booking unsubstantiated,
+self-asserted amounts as if they were verified — it even booked a phantom $1,845.36 claim
+(invoice + auto per-diem) before this was caught.
+
+Brandon's decision (2026-07-05): adopt a **hybrid** stance rather than accept-all or reject-all.
+An itemized invoice + the contractor's attestation is an acceptable submission for **small,
+low-risk lines**, but **lodging, airfare, and any single line at or over $75 require a receipt**
+before payment. The $75 threshold mirrors the IRS accountable-plan substantiation rule (receipts
+required for expenses of $75+, and always for lodging). This respects that co-founders shouldn't
+have to itemize every small ground-transport receipt, while keeping the engine from blindly
+paying big-ticket or allocation-sensitive amounts (e.g. Peter's airfare is billed at 50%, split
+with a separate MGB invoice — a receipt is needed to confirm the split).
+
+**Engine behavior:**
+- Phase A (commit c5d42a6): all invoice lines held out of reimbursement, flagged pending verification.
+- Phase B (this change): invoice lines that are neither lodging/airfare nor >= $75 become reimbursable
+  on attestation; the rest stay held as "receipt required."
+
+**Still open (not changed here):**
+- Cross-document reconciliation when both an invoice and its receipts are submitted — including how
+  allocated/split line items (invoice amount != receipt amount) should reconcile. Surfaced to Brandon
+  2026-07-05 as a design decision before building.
+- Overall ruleset `status` remains `draft` — per-diem, hotel cap, airfare tiers still pending the
+  broader Peter/Dan/David review.
+
+---
+
 <!-- Template for future entries:
 
 ## [0.2.0] — YYYY-MM-DD

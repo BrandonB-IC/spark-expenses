@@ -46,14 +46,17 @@ load_dotenv(ROOT / ".env")
 
 import os
 
+import hashlib
+
 from pipeline.drive_reader import list_receipts_for_contractor, download_file_bytes
 from pipeline.hasher import sha256_bytes
 from pipeline.vision_extractor import extract
-from pipeline.rules_engine import classify
+from pipeline.rules_engine import classify, apply_substantiation
 from pipeline.report_builder import (
     build_markdown_summary,
     build_csv_ledger,
     build_outstanding_markdown,
+    build_awaiting_receipts_markdown,
 )
 from reimbursements_store import (
     load_claims,
@@ -62,6 +65,7 @@ from reimbursements_store import (
     outstanding_by_contractor,
     total_outstanding,
 )
+import pending_invoices_store as pend
 
 
 # ---------------------------------------------------------------------------
@@ -140,6 +144,101 @@ def load_rules() -> dict:
 
 def load_projects() -> dict:
     return json.loads(PROJECTS_PATH.read_text(encoding="utf-8"))
+
+
+# ---------------------------------------------------------------------------
+# Cross-run invoice/receipt reconciliation (Phase B.3)
+# ---------------------------------------------------------------------------
+
+def _content_seq(merchant: str | None, date_str: str | None, amount) -> str:
+    raw = f"{(merchant or '').strip().lower()}|{date_str}|{amount}"
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:8]
+
+
+def reconcile_invoice_lines(flat_receipts, contractor, rules, dry_run, logger) -> list[dict]:
+    """Record held invoice lines and release them when a matching receipt arrives.
+
+    1. Persist this run's held invoice lines (lodging/airfare/>= threshold) so
+       they stay visible and matchable across runs.
+    2. Match this run's RECEIPT rows against awaiting held lines (this run's +
+       prior runs'); on a match, reimburse the receipt at the invoice's
+       (allocated) amount via reimbursable_override and release the held line.
+
+    Mutates matched receipt rows in flat_receipts in place. Returns match events.
+    """
+    cid = contractor["id"]
+    cname = contractor.get("display_name") or cid
+    lines = pend.load_pending()
+
+    # 1. Record held invoice lines from this run.
+    invoice_rows = [r for r in flat_receipts if (r.get("doc_type") or "receipt") == "invoice"]
+    if invoice_rows:
+        for r in apply_substantiation(invoice_rows, rules):
+            if r.get("substantiation_status") != "receipt_required":
+                continue
+            pend.upsert_pending_line(
+                lines,
+                contractor_id=cid,
+                contractor_name=cname,
+                project_id=r.get("project_id"),
+                invoice_number=r.get("invoice_number"),
+                invoice_sha256=r.get("sha256"),
+                date_str=r.get("date"),
+                merchant=r.get("merchant"),
+                category=r.get("category"),
+                amount=r.get("amount"),
+                invoice_note=r.get("invoice_note"),
+                seq=_content_seq(r.get("merchant"), r.get("date"), r.get("amount")),
+            )
+
+    # 2. Match receipts against awaiting held lines.
+    events = []
+    for r in [x for x in flat_receipts if (x.get("doc_type") or "receipt") != "invoice"]:
+        match = pend.find_match(pend.awaiting(lines), r)
+        if not match:
+            continue
+        allocated = float(match.get("amount") or 0)
+        receipt_amt = float(r.get("amount") or 0)
+        differs = abs(receipt_amt - allocated) > 0.01
+
+        r["reimbursable_override"] = allocated
+        note = (f"Substantiates invoice {match.get('invoice_number') or ''} line "
+                f"({match.get('merchant')}); reimbursed at invoice-billed ${allocated:,.2f}")
+        if differs:
+            note += (f" (receipt shows ${receipt_amt:,.2f}; the difference is billed to "
+                     f"another payer/project — confirm the split)")
+            r["flagged"] = True
+            reasons = list(r.get("flag_reasons") or [])
+            reasons.append(
+                f"Allocated/split item: receipt ${receipt_amt:,.2f} vs invoice-billed "
+                f"${allocated:,.2f}; reimbursing the invoice amount — confirm the allocation")
+            r["flag_reasons"] = reasons
+        existing_note = r.get("notes")
+        r["notes"] = f"{existing_note} · {note}" if existing_note else note
+
+        pend.mark_matched(
+            match,
+            receipt_sha=r.get("sha256"),
+            receipt_merchant=r.get("merchant"),
+            receipt_date=r.get("date"),
+            receipt_amount=receipt_amt,
+        )
+        events.append({
+            "invoice_number": match.get("invoice_number"),
+            "merchant": match.get("merchant"),
+            "allocated": allocated,
+            "receipt_amount": receipt_amt,
+            "differs": differs,
+        })
+        logger.info(
+            f"  RECONCILED: receipt {r.get('merchant')} ${receipt_amt:,.2f} releases held "
+            f"invoice line {match.get('merchant')} at ${allocated:,.2f}"
+            + ("  [split — confirm]" if differs else "")
+        )
+
+    if not dry_run:
+        pend.save_pending(lines)
+    return events
 
 
 # ---------------------------------------------------------------------------
@@ -243,8 +342,13 @@ def process_contractor(
         f"{new_ledger_entries} new ledger entries"
     )
 
+    # Cross-run reconciliation: record held invoice lines and release any that a
+    # receipt in this batch substantiates (sets reimbursable_override before rules).
+    reconcile_events = reconcile_invoice_lines(flat_receipts, contractor, rules, dry_run, logger)
+
     # Apply rules
     classified = classify(flat_receipts, rules, contractor)
+    classified["reconciled"] = reconcile_events
     classified["rules_version"] = rules.get("version", "unknown")
     classified["extraction_cost"] = {
         "input_tokens": extraction_cost_input_tokens,
@@ -405,13 +509,13 @@ def run(
         for c, classified in all_classified:
             counts = classified["counts"]
             reimb = float(classified["summary"]["total_reimbursable"] or 0)
-            # Invoice-only submissions have reimb == 0, so no claim is created for
-            # them here. When a week mixes receipts and invoices, the claim covers
-            # the receipts only — exclude invoice file hashes from the claim.
+            # A claim covers reimbursable rows only. Held invoice lines
+            # (receipt_required) contribute $0 and are excluded; receipts and
+            # attested invoice lines are included as support for the claim.
             if counts["new_ledger_entries"] > 0 and reimb > 0:
                 shas = sorted({
                     r["sha256"] for r in classified["receipts"]
-                    if r.get("sha256") and (r.get("doc_type") or "receipt") != "invoice"
+                    if r.get("sha256") and r.get("substantiation_status") != "receipt_required"
                 })
                 claim = upsert_claim(
                     claims,
@@ -461,16 +565,26 @@ def run(
         outstanding, owed, today=dt.date.today().isoformat()
     )
 
+    # ---- Standing "invoice lines awaiting receipts" digest (pending store) ----
+    pending_lines = pend.load_pending()
+    awaiting_by = pend.awaiting_by_contractor(pending_lines)
+    awaiting_total = pend.total_awaiting(pending_lines)
+    awaiting_md = build_awaiting_receipts_markdown(
+        awaiting_by, awaiting_total, today=dt.date.today().isoformat()
+    )
+
     total_new = sum(c[1]["counts"]["extracted_receipts"] for c in all_classified)
 
-    # Nothing new AND nothing owed -> truly nothing to say.
-    if total_new == 0 and owed == 0:
-        logger.info("No new receipts and nothing outstanding. Skipping email.")
+    # Nothing new AND nothing owed AND nothing held -> truly nothing to say.
+    if total_new == 0 and owed == 0 and awaiting_total == 0:
+        logger.info("No new receipts, nothing outstanding, nothing held. Skipping email.")
         logger.info("=== Run complete ===")
         return 0
 
-    # Build body: outstanding block always on top, then any new per-contractor reports.
+    # Build body: outstanding + awaiting blocks on top, then per-contractor reports.
     email_body_md_parts = [outstanding_md]
+    if awaiting_total > 0:
+        email_body_md_parts.append(awaiting_md)
     for c, classified in all_classified:
         if classified["counts"]["extracted_receipts"] == 0:
             continue
@@ -487,9 +601,12 @@ def run(
 
     if total_new > 0:
         subject = f"Spark Expense Report — {week_label}"
-    else:
+    elif owed > 0:
         # Quiet week, but money is still owed — keep the buildup visible.
         subject = f"Spark Expense — ${owed:,.2f} outstanding (no new receipts)"
+    else:
+        # Nothing owed/new, but invoice lines are held awaiting receipts.
+        subject = f"Spark Expense — ${awaiting_total:,.2f} held awaiting receipts (no new receipts)"
 
     if no_email or dry_run:
         logger.info(

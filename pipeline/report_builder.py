@@ -43,6 +43,11 @@ def _is_invoice_row(r: dict) -> bool:
     return (r.get("doc_type") or "receipt").strip().lower() == "invoice"
 
 
+def _is_held_invoice(r: dict) -> bool:
+    """An invoice line held pending a receipt (not reimbursed)."""
+    return _is_invoice_row(r) and r.get("substantiation_status") == "receipt_required"
+
+
 def build_markdown_summary(
     classified: dict,
     contractor: dict,
@@ -84,29 +89,34 @@ def build_markdown_summary(
     lines.append(f"| Replaced by per-diem | {_money(summary['total_replaced_by_per_diem'])} |")
     lines.append(f"| Net per-diem impact | {_money(summary['net_per_diem_impact'])} |")
     lines.append(f"| Items flagged for review | {summary['flag_count']} ({_money(summary['flagged_amount'])}) |")
+    if summary.get("invoice_attested_count"):
+        lines.append(
+            f"| Reimbursed on invoice attestation | {summary['invoice_attested_count']} "
+            f"({_money(summary['invoice_attested_amount'])}) — no receipt |"
+        )
     if summary.get("pending_verification_count"):
         lines.append(
-            f"| Invoices pending verification | {summary['pending_verification_count']} "
-            f"({_money(summary['pending_verification_amount'])}) — **not reimbursed** |"
+            f"| Invoice lines needing a receipt | {summary['pending_verification_count']} "
+            f"({_money(summary['pending_verification_amount'])}) — **held, not reimbursed** |"
         )
     lines.append("")
 
-    # ---- Invoices submitted instead of receipts (needs action before payment) ----
-    invoice_rows = [r for r in receipts if _is_invoice_row(r)]
-    if invoice_rows:
-        inv_total = sum(float(r.get("amount") or 0) for r in invoice_rows)
-        lines.append("## Invoices — pending verification (NOT auto-reimbursed)")
+    # ---- Invoice lines held pending a receipt (needs action before payment) ----
+    held_rows = [r for r in receipts if _is_held_invoice(r)]
+    if held_rows:
+        held_total = sum(float(r.get("amount") or 0) for r in held_rows)
+        lines.append("## Invoice lines needing a receipt (NOT reimbursed)")
         lines.append("")
         lines.append(
-            "These lines came from a document submitted as an **invoice**, not receipts. "
-            "They are held out of the reimbursable total until the underlying receipts are "
-            "provided. Stated total: "
-            f"**{_money(inv_total)}**."
+            "These came from a document submitted as an **invoice**. Under the substantiation "
+            "policy they are lodging, airfare, or at/over the receipt threshold, so they are held "
+            "out of the reimbursable total until the underlying receipts are provided. Stated total: "
+            f"**{_money(held_total)}**."
         )
         lines.append("")
         lines.append("| Date | Merchant | Category | Amount | Invoice | Note |")
         lines.append("|---|---|---|---:|---|---|")
-        for r in sorted(invoice_rows, key=lambda x: (x.get("date") or "", x.get("merchant") or "")):
+        for r in sorted(held_rows, key=lambda x: (x.get("date") or "", x.get("merchant") or "")):
             note = r.get("invoice_note") or r.get("notes") or ""
             note = str(note)
             if len(note) > 100:
@@ -143,8 +153,8 @@ def build_markdown_summary(
 
     by_category: dict[str, list[dict]] = {}
     for r in receipts:
-        if _is_invoice_row(r):
-            continue  # shown in the pending-verification section, not here
+        if _is_held_invoice(r):
+            continue  # shown in the "needs a receipt" section, not here
         cat = r.get("category") or "uncategorized"
         by_category.setdefault(cat, []).append(r)
 
@@ -258,6 +268,53 @@ def build_outstanding_markdown(
     return "\n".join(lines)
 
 
+def build_awaiting_receipts_markdown(
+    by_contractor: list[dict],
+    total_usd: float,
+    today: Optional[str] = None,
+) -> str:
+    """Render the standing 'invoice lines held awaiting receipts' block.
+
+    `by_contractor` is pending_invoices_store.awaiting_by_contractor(). These are
+    big-ticket invoice lines (lodging, airfare, or at/over the receipt threshold)
+    submitted without receipts — held out of reimbursement until a receipt lands.
+    """
+    today = today or datetime.now().strftime("%Y-%m-%d")
+    lines = []
+    lines.append("## Invoice lines awaiting receipts (held, not yet paid)")
+    lines.append("")
+
+    if not by_contractor:
+        lines.append("_No invoice lines are awaiting receipts._")
+        lines.append("")
+        return "\n".join(lines)
+
+    n_people = len(by_contractor)
+    lines.append(
+        f"**{_money(total_usd)}** of invoiced expense is held pending receipts across "
+        f"{n_people} {'person' if n_people == 1 else 'people'} (as of {today}). These are "
+        f"lodging, airfare, or at/over-threshold lines submitted on an invoice without "
+        f"receipts; they are **not reimbursed** until the receipt arrives and auto-reconciles."
+    )
+    lines.append("")
+    lines.append("| Person | Held | Lines | Oldest |")
+    lines.append("|---|---:|---:|---|")
+    for a in by_contractor:
+        age = a.get("oldest_age_days", 0)
+        age_str = "today" if age == 0 else (f"{age} day" if age == 1 else f"{age} days")
+        lines.append(
+            f"| {a.get('contractor_name')} "
+            f"| {_money(a.get('total_usd'))} "
+            f"| {a.get('n_lines')} "
+            f"| {age_str} |"
+        )
+    lines.append(f"| **Total** | **{_money(total_usd)}** | | |")
+    lines.append("")
+    lines.append("_Review held lines in the dashboard: http://localhost:8770/pending_")
+    lines.append("")
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # CSV ledger
 # ---------------------------------------------------------------------------
@@ -278,6 +335,7 @@ CSV_FIELDS = [
     "tip",
     "itemization_status",
     "invoice_number",
+    "substantiation_status",
     "flagged",
     "flag_reasons",
     "replaced_by_per_diem",
