@@ -66,6 +66,7 @@ from reimbursements_store import (
     total_outstanding,
 )
 import pending_invoices_store as pend
+from reporting.build_spend_overview import generate as generate_spend_overview
 
 
 # ---------------------------------------------------------------------------
@@ -556,6 +557,14 @@ def run(
         md_files.append(md_path)
         csv_files.append(csv_path)
         logger.info(f"Wrote {md_path.name} and {csv_path.name}")
+
+    # Refresh the standalone spend overview (who spent what against which project).
+    try:
+        overview_path = generate_spend_overview()
+        logger.info(f"Spend overview refreshed: {overview_path}")
+    except Exception as e:
+        logger.error(f"Spend overview generation failed: {e}")
+        logger.debug(traceback.format_exc())
 
     # ---- Standing "what Spark owes" digest (from the claims store) ----
     claims = load_claims()

@@ -68,7 +68,8 @@ Don't stop after reporting. Ask Brandon:
 ## Important reminders
 
 - **Cost honesty:** roughly $0.009 per PDF with Haiku. A typical month of 50–100 receipts costs $0.45–$0.90. Tell Brandon the cost when it's relevant.
-- **Rules version:** the rules are still flagged `draft - pending Spark partner review` until Brandon confirms with Peter/Dan/David. Don't let him approve real reimbursements through the dashboard until that conversation happens. Surface the warning banner if it's still there.
+- **Rules version:** the ruleset is `approved` (v1.0.0, 2026-07-05) — reimbursements are production, not tracking-only. Any rule change still needs a `config/expense-rules-changelog.md` entry + version bump (and ideally a Peter/Dan/David conversation for policy shifts).
+- **Invoices vs receipts:** contractors sometimes upload invoices (no receipts). The engine holds big-ticket invoice lines (lodging, airfare, >= $75) as "pending verification" and auto-releases them when a matching receipt arrives (see `/pending`). Small lines are reimbursed on attestation.
 - **Dedup is automatic:** SHA-256 hashes in `ledger.json` mean re-running is safe and free for already-processed receipts.
 - **Never delete or modify Drive files** — the engine uses readonly scope. If a contractor uploads the wrong file, ask the contractor to delete it from Drive themselves (you can't).
 - **Brandon's home airport** — currently a placeholder (`XXX`) in `config/contractors.json`. Until he sets it, all airfare receipts will be flagged "home airport not configured." Remind him gently if relevant.
