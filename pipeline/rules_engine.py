@@ -38,6 +38,14 @@ TRAVEL_DAY_TRIGGER_CATEGORIES = {
 
 MEAL_CATEGORIES = {"meals"}
 
+# Reason attached to every invoice-derived row. Phase A holds ALL invoice lines
+# for manual verification rather than auto-reimbursing self-asserted amounts.
+# (Phase B replaces this blanket hold with a tiered substantiation policy.)
+INVOICE_PENDING_REASON = (
+    "Submitted as an invoice, not a receipt — pending manual verification; "
+    "not auto-reimbursed"
+)
+
 
 # ---------------------------------------------------------------------------
 # Travel day detection
@@ -240,6 +248,36 @@ def flag_violations(
 
 
 # ---------------------------------------------------------------------------
+# Invoice quarantine (Phase A)
+# ---------------------------------------------------------------------------
+
+def quarantine_invoice_rows(invoice_rows: list[dict]) -> list[dict]:
+    """Hold invoice-derived rows out of the reimbursable total.
+
+    Invoices are self-asserted expense claims with no proof of payment. Rather
+    than auto-reimburse them, we zero their reimbursable amount and flag every
+    line for manual verification. The stated amounts are preserved in `amount`
+    so the report can show what was claimed.
+    """
+    out = []
+    for r in invoice_rows:
+        r = dict(r)
+        r["reimbursable_amount"] = 0.0
+        r["replaced_by_per_diem"] = False
+        r["flagged"] = True
+        reasons = list(r.get("flag_reasons") or [])
+        if INVOICE_PENDING_REASON not in reasons:
+            reasons.append(INVOICE_PENDING_REASON)
+        r["flag_reasons"] = reasons
+        out.append(r)
+    return out
+
+
+def _is_invoice(row: dict) -> bool:
+    return (row.get("doc_type") or "receipt").strip().lower() == "invoice"
+
+
+# ---------------------------------------------------------------------------
 # Top-level orchestrator
 # ---------------------------------------------------------------------------
 
@@ -248,33 +286,54 @@ def classify(
     rules: dict,
     contractor: dict,
 ) -> dict:
-    """Run the full rules pipeline against a list of extracted receipts.
+    """Run the full rules pipeline against a list of extracted rows.
+
+    Invoice-derived rows are separated out and quarantined (Phase A): they never
+    drive travel-day detection or per-diem, and never contribute to the
+    reimbursable total. Receipt rows flow through the normal pipeline.
 
     Returns a dict:
         {
-            "receipts": [...],          # all rows including synthetic per-diem
-            "summary": {...},           # totals + flag counts
+            "receipts": [...],          # all rows: receipts + synthetic per-diem + invoices
+            "summary": {...},           # totals + flag counts + pending-verification totals
             "warnings": [...],          # things to surface to the user
         }
     """
-    travel_days = detect_travel_days(receipts)
+    receipt_rows = [r for r in receipts if not _is_invoice(r)]
+    invoice_rows = [r for r in receipts if _is_invoice(r)]
+
+    travel_days = detect_travel_days(receipt_rows)
 
     receipts_after_per_diem, synthetic, total_replaced = apply_per_diem(
-        receipts, travel_days, rules
+        receipt_rows, travel_days, rules
     )
 
-    all_rows = receipts_after_per_diem + synthetic
-    all_rows = flag_violations(all_rows, rules, contractor)
+    receipt_result_rows = receipts_after_per_diem + synthetic
+    receipt_result_rows = flag_violations(receipt_result_rows, rules, contractor)
 
-    total_extracted = sum(float(r.get("amount") or 0) for r in receipts)
-    total_reimbursable = sum(float(r.get("reimbursable_amount") or 0) for r in all_rows)
+    quarantined_invoices = quarantine_invoice_rows(invoice_rows)
+
+    all_rows = receipt_result_rows + quarantined_invoices
+
+    # Reimbursable + flags are computed from receipt rows only; invoices are $0
+    # and tracked separately as pending verification.
+    total_extracted = sum(float(r.get("amount") or 0) for r in receipt_rows)
+    total_reimbursable = sum(
+        float(r.get("reimbursable_amount") or 0) for r in receipt_result_rows
+    )
     total_per_diem_added = sum(
         float(r.get("amount") or 0) for r in synthetic
     )
-    flag_count = sum(1 for r in all_rows if r.get("flagged"))
+    flag_count = sum(1 for r in receipt_result_rows if r.get("flagged"))
     flagged_amount = sum(
-        float(r.get("reimbursable_amount") or 0) for r in all_rows if r.get("flagged")
+        float(r.get("reimbursable_amount") or 0)
+        for r in receipt_result_rows
+        if r.get("flagged")
     )
+    pending_verification_amount = sum(
+        float(r.get("amount") or 0) for r in quarantined_invoices
+    )
+    pending_verification_count = len(quarantined_invoices)
 
     warnings = []
     per_diem_rules = rules.get("per_diem", {})
@@ -287,6 +346,17 @@ def classify(
         warnings.append(
             f"Rules version {rules.get('version', '?')} is marked '{rules['status']}'. "
             f"Do NOT process real reimbursements until partner review is complete."
+        )
+    if pending_verification_count:
+        invoice_numbers = sorted({
+            str(r.get("invoice_number")) for r in quarantined_invoices if r.get("invoice_number")
+        })
+        inv_ref = f" (invoice {', '.join(invoice_numbers)})" if invoice_numbers else ""
+        warnings.append(
+            f"{pending_verification_count} line(s) totaling {round(pending_verification_amount, 2)} "
+            f"were submitted as an INVOICE{inv_ref}, not receipts. These are held for manual "
+            f"verification and are NOT included in the reimbursable total. Ask for the underlying "
+            f"receipts before paying."
         )
 
     return {
@@ -301,6 +371,8 @@ def classify(
             "net_per_diem_impact": round(total_per_diem_added - total_replaced, 2),
             "flag_count": flag_count,
             "flagged_amount": round(flagged_amount, 2),
+            "pending_verification_amount": round(pending_verification_amount, 2),
+            "pending_verification_count": pending_verification_count,
         },
         "warnings": warnings,
     }

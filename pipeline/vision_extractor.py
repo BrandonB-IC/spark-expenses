@@ -36,10 +36,24 @@ _client = Anthropic()
 DEFAULT_MODEL = os.getenv("ANTHROPIC_VISION_MODEL", "claude-haiku-4-5-20251001")
 
 
-EXTRACTION_PROMPT = """You are extracting expense data from a receipt for an audit-ready reimbursement system.
+EXTRACTION_PROMPT = """You are extracting expense data from a document for an audit-ready reimbursement system.
 
-This file may contain ONE receipt or MULTIPLE receipts. Extract every distinct
-receipt and return them as a JSON array.
+STEP 1 — CLASSIFY THE DOCUMENT as exactly one of:
+- "receipt": proof of a COMPLETED payment — a store/rideshare/hotel/airline
+  receipt, an order confirmation showing an amount already paid, or a credit-card
+  slip. Most files are receipts. Signals: "paid", a card number, "thank you for
+  your order", a transaction/auth code.
+- "invoice": a REQUEST for payment or a self-prepared expense summary. It bills
+  someone rather than proving payment. Signals: the word "Invoice", an invoice
+  number, a "Bill To" / "Billed To" party, "Total Due" / "Amount Due", "Please
+  remit payment", or a list of expenses the submitter is asking to be paid for
+  WITHOUT attached proof-of-payment receipts.
+- "other": anything that is neither (a photo, a note, a blank page).
+
+Put this classification in a "doc_type" field on EVERY row you return.
+
+This file may contain ONE item or MULTIPLE items. Extract every distinct line and
+return them as a JSON array.
 
 CRITICAL — INITIAL vs UPDATED RECEIPTS:
 Some merchants (especially Uber, Lyft, DoorDash) issue an INITIAL receipt at
@@ -47,18 +61,20 @@ the time of service, then issue an UPDATED receipt when the customer adds a
 tip. These are NOT separate transactions — they are the SAME transaction with
 the tip added. If you see two receipts for the same trip/order at the same or
 near-same timestamp with the same merchant and the same base fare, only
-include the FINAL (tip-updated) version. Note this in the receipt's `notes`
+include the FINAL (tip-updated) version. Note this in the row's `notes`
 field so an auditor can see that a duplicate was suppressed.
 
-For each distinct receipt, extract these fields (use null when a value is not
-visible — do NOT guess):
+CATEGORY is one of these strings (best guess based on merchant + line items):
+    "travel-airfare", "travel-hotel", "travel-rideshare", "travel-other",
+    "meals", "supplies", "fees", "other"
 
+FOR A RECEIPT, extract these fields per receipt (use null when not visible —
+do NOT guess):
+- doc_type: "receipt"
 - date: ISO 8601 "YYYY-MM-DD" of the transaction
 - merchant: business name as printed on the receipt
 - merchant_location: city + state if visible (e.g. "San Diego, CA"), else null
-- category: one of these strings (best guess based on merchant + line items):
-    "travel-airfare", "travel-hotel", "travel-rideshare", "travel-other",
-    "meals", "supplies", "fees", "other"
+- category: see CATEGORY above
 - currency: ISO 4217 code (e.g. "USD", "EUR"). Default "USD" if not specified.
 - amount: FINAL total paid INCLUDING tax and tip — what hit the card
 - subtotal: pre-tax, pre-tip subtotal (null if unclear)
@@ -77,8 +93,27 @@ visible — do NOT guess):
          "duplicate of receipt N suppressed",
          or null if nothing notable.
 
+FOR AN INVOICE, extract ONE row per billed LINE ITEM. Do NOT emit a row for the
+invoice SUBTOTAL or TOTAL DUE — only the individual line items (summing the line
+rows would otherwise double-count the invoice). Each line-item row:
+- doc_type: "invoice"
+- date: the date of that line item's expense if shown, else the invoice date
+- merchant: the vendor named on that line (e.g. "United Airlines", "Hyatt")
+- merchant_location: city + state if visible, else null
+- category: see CATEGORY above
+- currency: ISO 4217 code. Default "USD".
+- amount: the amount billed for that line
+- subtotal / tax / tip: null unless the line itself breaks them out
+- itemization_status: "invoice_line"
+- line_items: [] (or a breakdown if the line itself is itemized)
+- invoice_number: the invoice's identifier — the SAME on every line from this invoice
+- invoice_note: any billing-arrangement / allocation / cost-sharing note stated
+      anywhere on the invoice (e.g. "50% of airfare shared with Boston Retreat
+      invoice"), repeated on each line; else null
+- notes: anything else notable, else null
+
 Return ONLY a JSON array. No prose. No markdown code fences.
-If there are no receipts visible, return [].
+If nothing is visible, return [].
 """
 
 
@@ -191,6 +226,18 @@ def extract(
         # Defensive: model occasionally returns a single object despite the prompt.
         data = [data]
 
+    # Document-type safety default. The classification is per-document, but the
+    # model emits it per-row. If ANY row reads as an invoice, treat the WHOLE
+    # file as an invoice so its rows are quarantined for manual verification.
+    # Biasing toward "invoice" is the safe direction: over-quarantining sends a
+    # legit receipt to manual review (annoying), while under-quarantining would
+    # auto-reimburse an unsubstantiated invoice (the bug we are preventing).
+    has_invoice = any((r.get("doc_type") or "").strip().lower() == "invoice" for r in data)
+    file_doc_type = "invoice" if has_invoice else "receipt"
+    for r in data:
+        raw_dt = (r.get("doc_type") or "receipt").strip().lower()
+        r["doc_type"] = "invoice" if has_invoice else (raw_dt if raw_dt in ("receipt", "other") else "receipt")
+
     # Safety net: drop any duplicate rows the model emitted within this single file.
     data, dropped = _dedupe_within_file(data)
 
@@ -200,5 +247,6 @@ def extract(
         "output_tokens": response.usage.output_tokens,
         "raw_response": raw_text,
         "dedup_dropped": dropped,
+        "file_doc_type": file_doc_type,
     }
     return data, metadata

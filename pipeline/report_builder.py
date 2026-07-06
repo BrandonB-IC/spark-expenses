@@ -39,6 +39,10 @@ def _fmt_flag_reasons(reasons: list[str]) -> str:
     return "; ".join(reasons)
 
 
+def _is_invoice_row(r: dict) -> bool:
+    return (r.get("doc_type") or "receipt").strip().lower() == "invoice"
+
+
 def build_markdown_summary(
     classified: dict,
     contractor: dict,
@@ -80,10 +84,45 @@ def build_markdown_summary(
     lines.append(f"| Replaced by per-diem | {_money(summary['total_replaced_by_per_diem'])} |")
     lines.append(f"| Net per-diem impact | {_money(summary['net_per_diem_impact'])} |")
     lines.append(f"| Items flagged for review | {summary['flag_count']} ({_money(summary['flagged_amount'])}) |")
+    if summary.get("pending_verification_count"):
+        lines.append(
+            f"| Invoices pending verification | {summary['pending_verification_count']} "
+            f"({_money(summary['pending_verification_amount'])}) — **not reimbursed** |"
+        )
     lines.append("")
 
+    # ---- Invoices submitted instead of receipts (needs action before payment) ----
+    invoice_rows = [r for r in receipts if _is_invoice_row(r)]
+    if invoice_rows:
+        inv_total = sum(float(r.get("amount") or 0) for r in invoice_rows)
+        lines.append("## Invoices — pending verification (NOT auto-reimbursed)")
+        lines.append("")
+        lines.append(
+            "These lines came from a document submitted as an **invoice**, not receipts. "
+            "They are held out of the reimbursable total until the underlying receipts are "
+            "provided. Stated total: "
+            f"**{_money(inv_total)}**."
+        )
+        lines.append("")
+        lines.append("| Date | Merchant | Category | Amount | Invoice | Note |")
+        lines.append("|---|---|---|---:|---|---|")
+        for r in sorted(invoice_rows, key=lambda x: (x.get("date") or "", x.get("merchant") or "")):
+            note = r.get("invoice_note") or r.get("notes") or ""
+            note = str(note)
+            if len(note) > 100:
+                note = note[:97] + "..."
+            lines.append(
+                f"| {r.get('date') or '?'} "
+                f"| {(r.get('merchant') or '?')[:40]} "
+                f"| {r.get('category') or '?'} "
+                f"| {_money(r.get('amount'))} "
+                f"| {r.get('invoice_number') or '—'} "
+                f"| {note} |"
+            )
+        lines.append("")
+
     # ---- Flagged items first (most important) ----
-    flagged = [r for r in receipts if r.get("flagged")]
+    flagged = [r for r in receipts if r.get("flagged") and not _is_invoice_row(r)]
     if flagged:
         lines.append("## Flagged for Review")
         lines.append("")
@@ -104,6 +143,8 @@ def build_markdown_summary(
 
     by_category: dict[str, list[dict]] = {}
     for r in receipts:
+        if _is_invoice_row(r):
+            continue  # shown in the pending-verification section, not here
         cat = r.get("category") or "uncategorized"
         by_category.setdefault(cat, []).append(r)
 
@@ -225,6 +266,7 @@ CSV_FIELDS = [
     "date",
     "contractor",
     "project",
+    "doc_type",
     "category",
     "merchant",
     "merchant_location",
@@ -235,6 +277,7 @@ CSV_FIELDS = [
     "tax",
     "tip",
     "itemization_status",
+    "invoice_number",
     "flagged",
     "flag_reasons",
     "replaced_by_per_diem",

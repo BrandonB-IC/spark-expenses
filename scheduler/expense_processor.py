@@ -192,6 +192,12 @@ def process_contractor(
             logger.info(f"  EXTRACT: {f.name}  ({len(file_bytes):,} bytes)")
             extracted, meta = extract(file_bytes, f.mime_type, filename=f.name)
 
+            if meta.get("file_doc_type") == "invoice":
+                logger.info(
+                    f"    -> classified as INVOICE ({len(extracted)} line(s)); "
+                    f"held for manual verification, NOT auto-reimbursed: {f.name}"
+                )
+
             extraction_cost_input_tokens += meta["input_tokens"]
             extraction_cost_output_tokens += meta["output_tokens"]
 
@@ -399,8 +405,14 @@ def run(
         for c, classified in all_classified:
             counts = classified["counts"]
             reimb = float(classified["summary"]["total_reimbursable"] or 0)
+            # Invoice-only submissions have reimb == 0, so no claim is created for
+            # them here. When a week mixes receipts and invoices, the claim covers
+            # the receipts only — exclude invoice file hashes from the claim.
             if counts["new_ledger_entries"] > 0 and reimb > 0:
-                shas = sorted({r["sha256"] for r in classified["receipts"] if r.get("sha256")})
+                shas = sorted({
+                    r["sha256"] for r in classified["receipts"]
+                    if r.get("sha256") and (r.get("doc_type") or "receipt") != "invoice"
+                })
                 claim = upsert_claim(
                     claims,
                     contractor_id=c["id"],
