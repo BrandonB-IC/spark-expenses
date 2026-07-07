@@ -144,8 +144,52 @@ def _extract_docx_text(file_bytes: bytes) -> str:
     return "\n".join(parts)
 
 
-def _build_content_block(file_bytes: bytes, mime_type: str) -> dict:
-    if mime_type == DOCX_MIME:
+def _extract_msg_text(file_bytes: bytes) -> str:
+    """Pull subject + body (+ attachment names) out of an Outlook .msg file.
+
+    Contractors forward email receipts (airfare, hotel, rideshare) as .msg files.
+    The vision API can't read .msg, so we parse it with extract-msg and hand the
+    text to the model. Note: Drive reports .msg as application/msword, so callers
+    must route on the .msg filename extension, not the mime type.
+    """
+    import os
+    import tempfile
+    import extract_msg
+
+    tmp = tempfile.NamedTemporaryFile(suffix=".msg", delete=False)
+    try:
+        tmp.write(file_bytes)
+        tmp.close()
+        m = extract_msg.openMsg(tmp.name)
+        parts = []
+        if m.subject:
+            parts.append(f"Email subject: {m.subject}")
+        if getattr(m, "sender", None):
+            parts.append(f"From: {m.sender}")
+        if m.body:
+            parts.append(m.body)
+        atts = [a.longFilename for a in m.attachments if getattr(a, "longFilename", None)]
+        if atts:
+            parts.append("Attachments: " + ", ".join(atts))
+        return "\n".join(parts)
+    finally:
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
+
+
+def _build_content_block(file_bytes: bytes, mime_type: str, filename: str = "") -> dict:
+    fn = (filename or "").lower()
+    if fn.endswith(".msg"):
+        text = _extract_msg_text(file_bytes)
+        return {
+            "type": "text",
+            "text": "The following is the text of a forwarded email receipt (.msg file). "
+                    "If the subject or body is marked [Personal], it is NOT a business "
+                    "expense and should be extracted with a note saying so:\n\n" + text,
+        }
+    if mime_type == DOCX_MIME or fn.endswith(".docx"):
         text = _extract_docx_text(file_bytes)
         return {
             "type": "text",
@@ -228,7 +272,7 @@ def extract(
       - metadata is {"model", "input_tokens", "output_tokens", "raw_response"}
         for cost tracking and debugging
     """
-    content_block = _build_content_block(file_bytes, mime_type)
+    content_block = _build_content_block(file_bytes, mime_type, filename)
     use_model = model or DEFAULT_MODEL
 
     response = _client.messages.create(
