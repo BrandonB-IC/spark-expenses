@@ -85,7 +85,10 @@ def _claim_project_split(claim: dict, ledger: dict, adjustments: dict | None = N
         by_project[proj] = by_project.get(proj, 0.0) + _adjs.adjusted_amount(adjustments, sha, base)
 
     if not by_project:
-        return {"(unassigned)": 1.0}
+        # No receipt shas resolved (e.g. a summary-based claim). Fall back to an
+        # explicit claim-level project label if one was recorded.
+        proj = claim.get("project")
+        return {proj: 1.0} if proj else {"(unassigned)": 1.0}
 
     total = sum(by_project.values())
     if total <= 0:
