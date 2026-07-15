@@ -453,6 +453,33 @@ def markdown_to_html_email(md_text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Hard-failure alert
+# ---------------------------------------------------------------------------
+
+def _alert_hard_failure(tb: str, week_label: str) -> None:
+    """Send a short failure notice if the run crashes before the report email.
+
+    Under Task Scheduler, stdout is discarded — a crash here would otherwise be
+    fully silent (this job crash-looped unseen for three weeks in spring 2026).
+    Reuses the existing Gmail SMTP path; best-effort, never raises.
+    """
+    logger = logging.getLogger("expense_processor")
+    if not logger.handlers:
+        logger.addHandler(logging.StreamHandler(sys.stdout))
+    subject = f"[FAILED] Spark Expense Engine crashed — {week_label}"
+    html = markdown_to_html_email(
+        f"# Spark Expense Engine crashed\n\n"
+        f"The scheduled run for **{week_label}** did not finish, and no report was "
+        f"produced. The traceback is below.\n\n"
+        f"```\n{tb}\n```\n"
+    )
+    try:
+        send_report_email(subject=subject, html_body=html, attachments=[], logger=logger)
+    except Exception as e:  # noqa: BLE001 — alerting must never itself crash the process
+        logger.error(f"Could not send hard-failure alert email: {e}")
+
+
+# ---------------------------------------------------------------------------
 # Top-level run
 # ---------------------------------------------------------------------------
 
@@ -647,13 +674,20 @@ def main():
     p.add_argument("--interactive", action="store_true", help="Verbose logging for /process-expenses skill")
     args = p.parse_args()
 
-    code = run(
-        contractor_filter=args.contractor,
-        week_label=args.week,
-        dry_run=args.dry_run,
-        no_email=args.no_email,
-        interactive=args.interactive,
-    )
+    try:
+        code = run(
+            contractor_filter=args.contractor,
+            week_label=args.week,
+            dry_run=args.dry_run,
+            no_email=args.no_email,
+            interactive=args.interactive,
+        )
+    except Exception:
+        # Only alert on real scheduled runs; interactive/dry/no-email runs are
+        # watched at the console and shouldn't trigger an email.
+        if not args.dry_run and not args.no_email:
+            _alert_hard_failure(traceback.format_exc(), args.week or current_week_label())
+        raise
     sys.exit(code)
 
 

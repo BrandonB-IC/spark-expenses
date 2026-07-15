@@ -22,7 +22,6 @@ from __future__ import annotations
 import base64
 import json
 import os
-import re
 from typing import Optional
 
 from anthropic import Anthropic
@@ -112,9 +111,59 @@ rows would otherwise double-count the invoice). Each line-item row:
       invoice"), repeated on each line; else null
 - notes: anything else notable, else null
 
-Return ONLY a JSON array. No prose. No markdown code fences.
-If nothing is visible, return [].
+Record every extracted line by calling the `record_expense_items` tool with an
+"items" array. If nothing is visible, call it with an empty array.
 """
+
+
+# Forced-tool schema: the model must return its extraction through this tool, so
+# we read guaranteed-valid structured data off the tool call instead of parsing
+# free text and stripping markdown fences (which occasionally broke). Per-row
+# fields stay nullable/loose to mirror the prompt and avoid over-constraining.
+EXTRACTION_TOOL = {
+    "name": "record_expense_items",
+    "description": "Record every distinct receipt line or invoice line item extracted from the document.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "items": {
+                "type": "array",
+                "description": "One entry per receipt or invoice line item. Empty array if nothing is visible.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "doc_type": {"type": "string", "enum": ["receipt", "invoice", "other"]},
+                        "date": {"type": ["string", "null"]},
+                        "merchant": {"type": ["string", "null"]},
+                        "merchant_location": {"type": ["string", "null"]},
+                        "category": {"type": ["string", "null"]},
+                        "currency": {"type": ["string", "null"]},
+                        "amount": {"type": ["number", "null"]},
+                        "subtotal": {"type": ["number", "null"]},
+                        "tax": {"type": ["number", "null"]},
+                        "tip": {"type": ["number", "null"]},
+                        "itemization_status": {"type": ["string", "null"]},
+                        "line_items": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "description": {"type": "string"},
+                                    "amount": {"type": "number"},
+                                },
+                            },
+                        },
+                        "invoice_number": {"type": ["string", "null"]},
+                        "invoice_note": {"type": ["string", "null"]},
+                        "notes": {"type": ["string", "null"]},
+                    },
+                    "required": ["doc_type"],
+                },
+            }
+        },
+        "required": ["items"],
+    },
+}
 
 
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -218,14 +267,6 @@ def _build_content_block(file_bytes: bytes, mime_type: str, filename: str = "") 
     raise ValueError(f"Unsupported mime type for vision extraction: {mime_type}")
 
 
-def _strip_fences(text: str) -> str:
-    """Remove ```json ... ``` fences if the model wrapped the JSON."""
-    text = text.strip()
-    text = re.sub(r"^```(?:json)?\s*\n?", "", text)
-    text = re.sub(r"\n?```\s*$", "", text)
-    return text.strip()
-
-
 def _dedupe_within_file(receipts: list[dict]) -> tuple[list[dict], int]:
     """Drop duplicate receipts that come from the same source file.
 
@@ -278,6 +319,8 @@ def extract(
     response = _client.messages.create(
         model=use_model,
         max_tokens=4096,
+        tools=[EXTRACTION_TOOL],
+        tool_choice={"type": "tool", "name": "record_expense_items"},
         messages=[
             {
                 "role": "user",
@@ -289,19 +332,21 @@ def extract(
         ],
     )
 
-    raw_text = response.content[0].text
-    clean = _strip_fences(raw_text)
-
-    try:
-        data = json.loads(clean)
-    except json.JSONDecodeError as e:
+    # Structured output: read the forced tool call — guaranteed schema-valid,
+    # no markdown fences to strip.
+    data = None
+    for block in response.content:
+        if getattr(block, "type", None) == "tool_use" and block.name == "record_expense_items":
+            data = block.input.get("items", [])
+            break
+    if data is None:
         raise ValueError(
-            f"Failed to parse Claude response as JSON for {filename or '<unnamed>'}: {e}\n"
-            f"Raw text (first 500 chars): {clean[:500]}"
-        ) from e
+            f"Claude did not return the expected record_expense_items tool call "
+            f"for {filename or '<unnamed>'}."
+        )
 
     if not isinstance(data, list):
-        # Defensive: model occasionally returns a single object despite the prompt.
+        # Defensive: keep the pipeline robust if the tool ever hands back a single object.
         data = [data]
 
     # Document-type safety default. The classification is per-document, but the
@@ -323,7 +368,7 @@ def extract(
         "model": use_model,
         "input_tokens": response.usage.input_tokens,
         "output_tokens": response.usage.output_tokens,
-        "raw_response": raw_text,
+        "raw_response": json.dumps({"items": data}),
         "dedup_dropped": dropped,
         "file_doc_type": file_doc_type,
     }
